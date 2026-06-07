@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/周汉钦/.agents/skills/writing-plans/**)",
+      "Read(//c/Users/周汉钦/.agents/skills/subagent-driven-development/**)",
+      "Read(//c/Users/周汉钦/.agents/skills/tdd/**)",
+      "Read(//c/Users/周汉钦/.agents/skills/verification-before-completion/**)",
+      "Read(//c/Users/周汉钦/.agents/skills/finishing-a-development-branch/**)",
+      "Read(//c/Users/周汉钦/.agents/skills/writing-skills/**)",
+      "Read(//c/Users/周汉钦/.agents/skills/prototype/**)",
+      "Read(//c/Users/周汉钦/.agents/skills/brainstorming/**)",
+      "Read(//c/Users/周汉钦/.agents/skills/to-issues/**)",
+      "Read(//c/Users/周汉钦/.agents/skills/systematic-debugging/**)",
+      "Bash(mkdir -p \"E:/git-workspace/repos/318/.claude/skills\")",
+      "Bash(cp -r C:/Users/周汉钦/.claude/skills/writing-plans C:/Users/周汉钦/.claude/skills/subagent-driven-development C:/Users/周汉钦/.claude/skills/tdd C:/Users/周汉钦/.claude/skills/verification-before-completion C:/Users/周汉钦/.claude/skills/finishing-a-development-branch C:/Users/周汉钦/.claude/skills/prototype C:/Users/周汉钦/.claude/skills/brainstorming C:/Users/周汉钦/.claude/skills/to-issues C:/Users/周汉钦/.claude/skills/systematic-debugging E:/git-workspace/repos/318/.claude/skills/)",
+      "Bash(npm --version)",
+      "Bash(git --version)",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(npm create vite@latest tmp-scaffold -- --template vue)",
+      "PowerShell($src = 'E:\\\\git-workspace\\\\repos\\\\318\\\\tmp-scaffold'; $dst = 'E:\\\\git-workspace\\\\repos\\\\318'; Get-ChildItem -LiteralPath $src -Force | ForEach-Object { Move-Item -LiteralPath $_.FullName -Destination $dst -Force }; Remove-Item -LiteralPath $src -Recurse -Force; Write-Output 'MOVE_DONE')",
+      "PowerShell(Set-Location 'E:\\\\git-workspace\\\\repos\\\\318'; $out = 'E:\\\\git-workspace\\\\repos\\\\318\\\\dev-out.log'; if \\(Test-Path $out\\) { Remove-Item $out -Force }; $p = Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev' -RedirectStandardOutput $out -RedirectStandardError 'E:\\\\git-workspace\\\\repos\\\\318\\\\dev-err.log' -PassThru -WindowStyle Hidden; $found = $false; for \\($i=0; $i -lt 30; $i++\\) { Start-Sleep -Seconds 1; if \\(Test-Path $out\\) { $c = Get-Content $out -Raw; if \\($c -match 'Local:'\\) { $found = $true; break } } }; Write-Output \"FOUND=$found PID=$\\($p.Id\\)\"; if \\(-not $p.HasExited\\) { Stop-Process -Id $p.Id -Force }; Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Output '--- DEV OUTPUT ---'; if \\(Test-Path $out\\) { Get-Content $out })",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}

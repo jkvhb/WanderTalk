@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>318路书 · 产品需求文档</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', 'PingFang SC', system-ui, sans-serif;
+    background: #f5f5f7; color: #1d1d1f; line-height: 1.7; padding: 40px 20px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 {
+    font-size: 40px; font-weight: 700; text-align: center; margin-bottom: 4px;
+    background: linear-gradient(135deg, #0071e3, #00c7be);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .subtitle { text-align: center; color: #86868b; font-size: 17px; margin-bottom: 40px; }
+  .card {
+    background: rgba(255,255,255,0.8); backdrop-filter: blur(20px); border-radius: 16px;
+    padding: 28px 32px; margin-bottom: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.04);
+  }
+  .card h2 { font-size: 22px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .card h3 { font-size: 16px; font-weight: 600; margin: 18px 0 8px; color: #0071e3; }
+  .card p, .card li { font-size: 14px; color: #424245; }
+  .card ul, .card ol { padding-left: 20px; }
+  .card li { margin-bottom: 5px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #e8e8ed; }
+  th { background: #f5f5f7; font-weight: 600; }
+  tr:hover { background: #fafafa; }
+  .tag {
+    display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px;
+    font-weight: 500; margin: 1px 3px 1px 0;
+  }
+  .t-blue { background: #e8f4fd; color: #0071e3; }
+  .t-green { background: #e8f8f0; color: #00a86b; }
+  .t-orange { background: #fff3e0; color: #e67e22; }
+  .t-purple { background: #f3e8fd; color: #8e44ad; }
+  .t-red { background: #ffe8e8; color: #e74c3c; }
+  .badge {
+    display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 12px;
+    font-weight: 600; color: white; margin-right: 8px;
+  }
+  .b-p1 { background: #0071e3; } .b-p2 { background: #00a86b; } .b-p3 { background: #e67e22; }
+  .b-p4 { background: #8e44ad; } .b-p5 { background: #e74c3c; }
+  .flow-box {
+    background: #1d1d1f; color: #f5f5f7; padding: 16px 20px; border-radius: 10px;
+    font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.7;
+    overflow-x: auto; margin: 12px 0;
+  }
+  .highlight { background: linear-gradient(180deg, transparent 60%, #b4e0ff 60%); padding: 0 2px; }
+  hr { border: none; border-top: 1px solid #e8e8ed; margin: 20px 0; }
+  @media (max-width: 640px) {
+    body { padding: 16px 8px; }
+    h1 { font-size: 26px; }
+    .card { padding: 16px; }
+    th, td { padding: 6px 8px; font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>318路书</h1>
+<p class="subtitle">路书规划 & 动画讲解视频生成工具 · 产品需求文档 v1.0</p>
+
+<!-- 一、产品定位 -->
+<div class="card">
+  <h2>一、产品定位</h2>
+  <p><strong>318路书</strong> 是一个面向自驾旅行者的<span class="highlight">路书规划与讲解视频生成工具</span>。</p>
+  <br>
+  <p>用户在地图上自由规划多日自驾路线、搜索并添加沿途的餐饮住宿等兴趣点，完成路书后一键生成 <strong>飞行动画 + AI旁白讲解</strong> 的路书视频，像纪录片一样展示整条路线。</p>
+
+  <h3>一句话描述</h3>
+  <p>在地图上规划自驾路线，自动生成带旁白讲解的飞行动画视频。</p>
+
+  <h3>核心差异化</h3>
+  <table>
+    <tr><th>对比维度</th><th>路小绘 TrailPaint</th><th>318路书（本产品）</th></tr>
+    <tr><td>POI 数据</td><td>搜索能力有限，很多地点搜不到</td><td>基于高德地图，覆盖餐饮/住宿/景点等全类别</td></tr>
+    <tr><td>路线规划</td><td>基础路线绘制</td><td>多日分段规划 + 沿实际道路的驾车路线 + 距离/时间计算</td></tr>
+    <tr><td>分享形式</td><td>静态路书图片/页面</td><td><strong>动画讲解视频</strong>（飞行动画 + 旁白配音）</td></tr>
+    <tr><td>语音播报</td><td>无</td><td>AI 自然语音旁白，支持停顿、语气，效果接近真人讲解</td></tr>
+  </table>
+</div>
+
+<!-- 二、用户场景 -->
+<div class="card">
+  <h2>二、用户与场景</h2>
+  <table>
+    <tr><th>角色</th><th>场景</th><th>诉求</th></tr>
+    <tr><td>自驾旅行者</td><td>出发前规划 318 川藏线行程</td><td>搞清楚每天开多远、住哪里、沿途有什么吃的玩的</td></tr>
+    <tr><td>旅行博主</td><td>制作路线讲解内容发布到社交平台</td><td>生成带配音的路线动画视频，省去剪辑时间</td></tr>
+    <tr><td>车队领队</td><td>出发前向队员讲解路线</td><td>可视化的路线说明，标注集合点、加油站、注意事项</td></tr>
+    <tr><td>旅行回忆者</td><td>旅行结束后制作纪念视频</td><td>把实际走过路线生成动画，配自己的讲解，留作纪念</td></tr>
+  </table>
+</div>
+
+<!-- 三、功能列表 -->
+<div class="card">
+  <h2>三、功能全景</h2>
+
+  <h3>F1 · 地图交互</h3>
+  <ul>
+    <li>高德地图底图，支持标准/卫星图层切换</li>
+    <li>缩放、平移、定位</li>
+    <li>点击地图任意位置查看坐标</li>
+  </ul>
+
+  <h3>F2 · POI 搜索</h3>
+  <ul>
+    <li>关键词搜索地点、餐厅、酒店、景点</li>
+    <li>分类筛选：<span class="tag t-orange">🍜 餐饮</span> <span class="tag t-blue">🏠 住宿</span> <span class="tag t-green">📍 景点</span> <span class="tag t-red">⛽ 加油站</span> <span class="tag t-purple">📸 观景台</span></li>
+    <li>搜索结果展示名称、地址、评分、人均消费</li>
+    <li>一键添加到路线中</li>
+  </ul>
+
+  <h3>F3 · 路线规划（核心）</h3>
+  <ul>
+    <li><span class="highlight">完全自由的路线编辑</span>——不限于318，任何路线都可以</li>
+    <li>预设 318 川藏线 19 个关键节点作为快速模板，但<span class="highlight">每个节点都可以增删改</span></li>
+    <li>多天分段规划：每天包含起点→途经点→终点</li>
+    <li>实际驾车路线计算（沿真实道路，非直线）</li>
+    <li>显示每段距离、预计时间</li>
+    <li>支持添加途经点（多段拼接）</li>
+    <li>每个节点可编辑：名称、到达时间、备注</li>
+  </ul>
+
+  <h3>F4 · 旁白编辑</h3>
+  <ul>
+    <li>为每段路线编写讲解文案</li>
+    <li>支持 SSML 标记（控制停顿、语速、重音），实现自然播报效果</li>
+    <li>多种 AI 语音可选：<span class="tag t-blue">晓晓（活泼女声）</span> <span class="tag t-green">云希（稳重男声）</span> <span class="tag t-purple">晓伊（温柔女声）</span></li>
+    <li>一键合成试听，不满意可反复调整</li>
+  </ul>
+
+  <h3>F5 · 动画预览</h3>
+  <ul>
+    <li>在地图上以飞行动画形式预览整条路线</li>
+    <li>相机自动跟随路线移动，支持暂停/拖拽进度</li>
+    <li>旁白与画面<span class="highlight">自动同步</span>——旁白长就飞慢点，旁白短就飞快点</li>
+    <li>途经重要节点时自动叠加地名、海拔标签</li>
+    <li>到达关键站点时自动停留，等旁白说完再继续</li>
+  </ul>
+
+  <h3>F6 · 视频导出</h3>
+  <ul>
+    <li>将动画+旁白导出为视频文件（WebM 格式）</li>
+    <li>支持 720p / 1080p 分辨率</li>
+    <li>导出时显示进度条</li>
+    <li>导出完成后自动下载</li>
+  </ul>
+
+  <h3>F7 · 数据持久化</h3>
+  <ul>
+    <li>路线数据自动保存到浏览器（IndexedDB）</li>
+    <li>关闭浏览器再打开，之前的路线还在</li>
+    <li>旁白音频缓存，避免重复合成</li>
+  </ul>
+</div>
+
+<!-- 四、产品形态 -->
+<div class="card">
+  <h2>四、产品形态</h2>
+  <table>
+    <tr><th>维度</th><th>方案</th></tr>
+    <tr><td>形态</td><td>Web 单页应用（SPA），浏览器打开即用</td></tr>
+    <tr><td>前端</td><td>Vue 3 + Vite + TailwindCSS</td></tr>
+    <tr><td>地图</td><td>高德地图 JS API 2.0（POI 搜索 + 路线规划）</td></tr>
+    <tr><td>TTS 语音</td><td>Edge TTS（免费神经网络语音，微软晓晓等中文声音）</td></tr>
+    <tr><td>存储</td><td>IndexedDB（浏览器本地数据库）</td></tr>
+    <tr><td>后端</td><td><strong>无需后端</strong>，纯前端运行</td></tr>
+    <tr><td>视频导出</td><td>浏览器 MediaRecorder API + Canvas 录制</td></tr>
+    <tr><td>部署</td><td>静态文件，可部署到任意静态托管（Vercel / GitHub Pages / Nginx）</td></tr>
+  </table>
+</div>
+
+<!-- 五、界面布局 -->
+<div class="card">
+  <h2>五、界面与交互</h2>
+
+  <h3>整体结构</h3>
+  <p>应用分为三个视图，通过顶部导航栏切换：</p>
+  <table>
+    <tr><th>视图</th><th>说明</th></tr>
+    <tr><td>路线规划</td><td>主工作区。左侧边栏（路线编辑 / POI 搜索）+ 右侧地图</td></tr>
+    <tr><td>视频工作室</td><td>左侧旁白编辑器 + 右侧黑底预览区</td></tr>
+    <tr><td>设置</td><td>API Key 配置、语音选择、导出参数</td></tr>
+  </table>
+
+  <h3>路线规划页布局（桌面端）</h3>
+  <div class="flow-box">
+┌──────────────┬─────────────────────────────────────────┐
+│  左侧边栏     │                                          │
+│  (320px)     │        高德地图（填充剩余宽度）            │
+│              │                                          │
+│ ┌──────────┐ │   · 预设318路线标记点                     │
+│ │ 标签切换  │ │   · POI 搜索标记点                        │
+│ │ 路线/搜索 │ │   · 驾车路线折线                          │
+│ ├──────────┤ │   · 可点击/拖拽交互                        │
+│ │          │ │                                          │
+│ │ Day 1 ◉  │ │                                          │
+│ │ 康定     │ │                                          │
+│ │ Day 2 ◉  │ │                                          │
+│ │ 雅江     │ │                                          │
+│ │ Day 3 ◉  │ │                                          │
+│ │ ...      │ │                                          │
+│ │          │ │                                          │
+│ └──────────┘ │                                          │
+└──────────────┴─────────────────────────────────────────┘
+  </div>
+
+  <h3>设计风格</h3>
+  <ul>
+    <li>Apple 极简风格：大量留白、圆角卡片、微弱阴影</li>
+    <li>毛玻璃导航栏（backdrop-filter: blur）</li>
+    <li>颜色：中性灰白为主，蓝色（#0071e3）强调</li>
+    <li>字体：PingFang SC / system-ui</li>
+    <li>动效：过渡 200ms ease，不拖沓</li>
+  </ul>
+</div>
+
+<!-- 六、核心算法 -->
+<div class="card">
+  <h2>六、核心算法：旁白驱动动画</h2>
+  <p>这是本产品最关键的技术设计——<span class="highlight">保证动画节奏始终跟随旁白，绝不出现"话没说完画面就跑了"</span>。</p>
+
+  <h3>原理</h3>
+  <p>不是实时同步两个独立系统，而是<strong>先知道旁白有多长，再决定动画飞多快</strong>。整个过程是确定性计算，不涉及 AI 预测。</p>
+
+  <h3>三步流程</h3>
+  <div class="flow-box">
+<b>第一步：合成旁白 → 拿到精确时长</b>
+  段1 "从成都出发，沿成雅高速一路向西..."  → TTS → 14.2秒
+  段2 "翻越折多山垭口，海拔4298米..."      → TTS →  8.7秒
+  段3 "抵达摄影天堂新都桥..."              → TTS → 11.5秒
+
+<b>第二步：用旁白时长反推动画节奏</b>
+  段1: 距离85km / 200kmh虚拟速度 = 至少需要5秒飞完
+       旁白14.2秒 > 飞行5秒 → 剩余9.2秒分配为停留缓冲
+       → 起点停留2秒 + 飞行放缓至7秒 + 终点停留5.2秒 = 14.2秒 ✓
+
+<b>第三步：生成关键帧时间轴</b>
+  0s      2s              9s           14.2s
+  ├────────┼───────────────┼─────────────┤
+  停留成都  飞行动画→→→→→→  到达康定停留
+  旁白开始→→→→→→→→→→→→→→→→→→→→旁白结束
+                 "雅安"标签渐入/渐出
+  </div>
+
+  <h3>两种场景自动处理</h3>
+  <table>
+    <tr><th>场景</th><th>策略</th></tr>
+    <tr><td>旁白长、路程短</td><td>在起终点自动插入停留时间，相机原地悬停展示场景</td></tr>
+    <tr><td>旁白短、路程长</td><td>加快飞行速度，或在途经点之间自然过渡</td></tr>
+    <tr><td>段与段之间</td><td>自动插入 1-2 秒过渡，画面保持 + 旁白自然停顿</td></tr>
+  </table>
+
+  <h3>旁白自然停顿（SSML）</h3>
+  <div class="flow-box">
+&lt;speak&gt;
+  现在我们离开成都，&lt;break time="300ms"/&gt;
+  沿成雅高速向雅安方向前进。&lt;break time="500ms"/&gt;
+  二郎山隧道&lt;emphasis&gt;是川藏线上的第一道门户&lt;/emphasis&gt;，
+  &lt;break time="200ms"/&gt;
+  穿过隧道，就正式进入甘孜藏区了。
+&lt;/speak&gt;
+  </div>
+  <p style="margin-top:8px;font-size:13px;color:#86868b">通过 &lt;break&gt; 标签控制停顿，通过 &lt;emphasis&gt; 控制重音，让播报有语气有节奏。</p>
+</div>
+
+<!-- 七、技术架构 -->
+<div class="card">
+  <h2>七、技术架构</h2>
+
+  <h3>双地图引擎</h3>
+  <p>为什么需要两个地图库？因为它们的用途不同：</p>
+  <table>
+    <tr><th>阶段</th><th>地图库</th><th>原因</th></tr>
+    <tr><td>路线编辑</td><td>高德 JS API 2.0</td><td>国内 POI 数据最全，餐饮/住宿都能搜到；原生驾车路线规划</td></tr>
+    <tr><td>视频导出</td><td>MapLibre GL JS</td><td>Canvas 可控，支持 captureStream() 录制；用高德免费瓦片，不消耗 API 额度</td></tr>
+  </table>
+
+  <h3>技术选型理由</h3>
+  <table>
+    <tr><th>技术</th><th>用途</th><th>为什么选它</th></tr>
+    <tr><td>Vue 3 + Vite</td><td>前端框架</td><td>响应式数据绑定适合地图交互；Vite 开发快、构建产物小</td></tr>
+    <tr><td>Pinia</td><td>状态管理</td><td>路线数据在多个组件间共享，Pinia 是 Vue 3 官方推荐</td></tr>
+    <tr><td>高德 JS API 2.0</td><td>地图 + POI + 路线</td><td>国内唯一靠谱选择，POI 覆盖最全，免费额度够用</td></tr>
+    <tr><td>Edge TTS</td><td>语音合成</td><td>微软神经网络语音，zh-CN-XiaoxiaoNeural 效果自然；免费、无需后端、无需 API Key</td></tr>
+    <tr><td>MapLibre GL JS</td><td>视频导出渲染</td><td>开源、Canvas 可控、支持 captureStream(30fps)</td></tr>
+    <tr><td>IndexedDB (idb)</td><td>本地存储</td><td>路线坐标数据量大(几千个点)，localStorage 只有 5MB 不够用</td></tr>
+    <tr><td>MediaRecorder</td><td>视频编码</td><td>浏览器原生 API，Canvas captureStream + 音频混合 → WebM</td></tr>
+  </table>
+
+  <h3>无后端设计</h3>
+  <p>整个应用<strong>零后端依赖</strong>：</p>
+  <ul>
+    <li>地图瓦片：高德免费 CDN</li>
+    <li>TTS 语音：Edge TTS 免费接口（浏览器直连微软服务器）</li>
+    <li>路线计算：高德 API（前端直接调用）</li>
+    <li>数据存储：浏览器 IndexedDB</li>
+    <li>视频编码：浏览器 MediaRecorder</li>
+    <li>部署产物：纯静态 HTML + JS + CSS</li>
+  </ul>
+  <p style="margin-top:8px;font-size:13px;color:#86868b">唯一外部依赖是用户自己的高德 API Key（免费申请，5分钟搞定）。</p>
+</div>
+
+<!-- 八、数据模型 -->
+<div class="card">
+  <h2>八、数据模型</h2>
+  <div class="flow-box">
+TripPlan (一次旅行计划)
+├── id, name, description, dateRange
+├── days: TripDay[]           ← 多天行程
+│   ├── dayNumber: number
+│   ├── segments: RouteSegment[]  ← 每天的路线段
+│   │   ├── from: Waypoint       ← 起点
+│   │   ├── to: Waypoint         ← 终点
+│   │   ├── path: [lng,lat][]    ← 实际道路坐标串
+│   │   ├── distance, duration   ← 距离和时间
+│   │   ├── narration: { text, audioBlob?, duration? }
+│   │   └── attachedPOIs: POI[]  ← 沿途添加的兴趣点
+│   └── overnightStay?: POI      ← 当晚住宿
+│
+├── narrationConfig: { voice, speed, pitch }
+│
+POI (兴趣点)
+├── id, name, lat, lng
+├── category: 'restaurant' | 'hotel' | 'attraction' | 'gas_station' | 'viewpoint' | 'other'
+├── address, tel?, rating?, avgCost?
+└── source: 'amap' | 'manual' | 'preset'
+  </div>
+</div>
+
+<!-- 九、开发计划 -->
+<div class="card">
+  <h2>九、分阶段开发计划</h2>
+
+  <h3><span class="badge b-p1">Phase 1</span> 基础骨架 —— 能打开、能看地图</h3>
+  <table>
+    <tr><th>任务</th><th>产出</th><th>状态</th></tr>
+    <tr><td>Vue 3 + Vite + TailwindCSS 脚手架</td><td>项目能跑起来</td><td>✅ 完成</td></tr>
+    <tr><td>三视图路由 + 导航栏</td><td>路线规划/视频工作室/设置 可切换</td><td>✅ 完成</td></tr>
+    <tr><td>高德地图集成</td><td>地图显示、缩放平移、图层切换</td><td>✅ 完成</td></tr>
+    <tr><td>设置页（API Key 配置）</td><td>用户可输入并保存高德 Key</td><td>✅ 完成</td></tr>
+    <tr><td>318 预设数据加载</td><td>一键加载 19 个关键节点到路线中</td><td>✅ 完成</td></tr>
+    <tr><td>POI 搜索面板</td><td>关键词搜索 + 分类筛选，结果列表展示</td><td>✅ 完成</td></tr>
+  </table>
+
+  <h3><span class="badge b-p2">Phase 2</span> 路线编辑 —— 能规划、能改路线</h3>
+  <table>
+    <tr><th>任务</th><th>产出</th></tr>
+    <tr><td>高德驾车路线计算</td><td>两个节点之间生成实际道路的折线和距离/时间</td></tr>
+    <tr><td>多天路线分段编辑</td><td>增删天数、节点跨天拖拽、调整顺序</td></tr>
+    <tr><td>地图上渲染路线</td><td>按天分色绘制路线折线，点击查看详情</td></tr>
+    <tr><td>POI 添加到路线</td><td>搜索结果一键挂载到指定天/段</td></tr>
+    <tr><td>地图点击添加节点</td><td>点击地图任意位置添加自定义途经点</td></tr>
+    <tr><td>IndexedDB 自动保存</td><td>关闭再打开，路线不丢失</td></tr>
+  </table>
+
+  <h3><span class="badge b-p3">Phase 3</span> 语音合成 —— 能写稿、能听播报</h3>
+  <table>
+    <tr><th>任务</th><th>产出</th></tr>
+    <tr><td>Edge TTS 集成</td><td>调用微软神经网络语音 API，合成中文旁白</td></tr>
+    <tr><td>旁白编辑器</td><td>每段路线下方可编辑讲解文案</td></tr>
+    <tr><td>SSML 编辑 + 预览</td><td>支持 &lt;break&gt; &lt;emphasis&gt; 标签，一键试听</td></tr>
+    <tr><td>批量合成 + 缓存</td><td>全部段落一键合成，音频 Blob 缓存到 IndexedDB</td></tr>
+    <tr><td>语音选择 + 调速</td><td>晓晓/云希/晓伊 可选，语速 0.5x-2.0x 可调</td></tr>
+  </table>
+
+  <h3><span class="badge b-p4">Phase 4</span> 动画引擎 —— 能预览飞行讲解</h3>
+  <table>
+    <tr><th>任务</th><th>产出</th></tr>
+    <tr><td>MapLibre GL JS 渲染器</td><td>独立地图 Canvas，使用高德瓦片</td></tr>
+    <tr><td>旁白驱动时间轴算法</td><td>根据每段音频时长自动计算相机关键帧</td></tr>
+    <tr><td>相机飞行插值</td><td>贝塞尔曲线平滑过渡，支持 easeInOut</td></tr>
+    <tr><td>动画播放器</td><td>播放/暂停/拖拽进度条，画面与旁白同步</td></tr>
+    <tr><td>文字叠加层</td><td>地名、海拔在相机接近时渐入渐出</td></tr>
+  </table>
+
+  <h3><span class="badge b-p5">Phase 5</span> 视频导出 —— 能生成、能下载</h3>
+  <table>
+    <tr><th>任务</th><th>产出</th></tr>
+    <tr><td>Canvas captureStream</td><td>捕获 MapLibre 画布为视频帧（30fps）</td></tr>
+    <tr><td>音视频合流</td><td>旁白音频 + Canvas 视频轨合并</td></tr>
+    <tr><td>MediaRecorder 编码</td><td>WebM/VP9 编码，8Mbps 1080p</td></tr>
+    <tr><td>导出进度 + 下载</td><td>进度条 + 自动下载</td></tr>
+    <tr><td>片头片尾</td><td>路线标题卡 + 结束感谢页</td></tr>
+  </table>
+
+  <h3><span class="badge" style="background:#636e72">Phase 6</span> 打磨完善</h3>
+  <table>
+    <tr><th>任务</th><th>产出</th></tr>
+    <tr><td>318 全线 9 段预设旁白文案</td><td>开箱即用的完整川藏线讲解</td></tr>
+    <tr><td>移动端响应式</td><td>小屏幕下侧边栏变为底部抽屉</td></tr>
+    <tr><td>错误处理 + 提示</td><td>API 额度、网络异常、浏览器不兼容等</td></tr>
+    <tr><td>动画过渡优化</td><td>段间过渡自然、无跳变闪烁</td></tr>
+  </table>
+</div>
+
+<!-- 十、预设318数据 -->
+<div class="card">
+  <h2>十、预设 318 川藏线数据</h2>
+  <p style="font-size:13px;color:#86868b;margin-bottom:12px">以下数据作为快速模板，用户可自由增删改。海拔为近似值。</p>
+  <table>
+    <tr><th>天数</th><th>住宿点</th><th>途经关键节点</th><th>海拔</th></tr>
+    <tr><td>Day 1</td><td><strong>康定</strong></td><td>成都(起点) → 雅安 → 泸定</td><td>500→2395m</td></tr>
+    <tr><td>Day 2</td><td><strong>雅江</strong></td><td>折多山垭口(4298m) → 新都桥</td><td>2395→2530m</td></tr>
+    <tr><td>Day 3</td><td><strong>理塘</strong></td><td>剪子湾山 → 卡子拉山</td><td>2530→4014m</td></tr>
+    <tr><td>Day 4</td><td><strong>巴塘</strong></td><td>海子山 → 姊妹湖</td><td>4014→2575m</td></tr>
+    <tr><td>Day 5</td><td><strong>左贡</strong></td><td>金沙江(进藏) → 芒康 → 东达山(5130m)</td><td>2575→3750m</td></tr>
+    <tr><td>Day 6</td><td><strong>八宿</strong></td><td>邦达草原 → 怒江72拐 → 业拉山</td><td>3750→3260m</td></tr>
+    <tr><td>Day 7</td><td><strong>波密</strong></td><td>然乌湖</td><td>3260→2720m</td></tr>
+    <tr><td>Day 8</td><td><strong>林芝</strong></td><td>通麦 → 鲁朗林海 → 色季拉山(远眺南迦巴瓦)</td><td>2720→3000m</td></tr>
+    <tr><td>Day 9</td><td><strong>拉萨</strong></td><td>林拉高速 → 米拉山</td><td>3000→3650m</td></tr>
+  </table>
+  <p style="margin-top:8px;font-size:13px;color:#86868b">全程约 2100km，建议 9-10 天完成。</p>
+</div>
+
+<!-- 十一、风险 -->
+<div class="card">
+  <h2>十一、风险与应对</h2>
+  <table>
+    <tr><th>风险</th><th>等级</th><th>应对</th></tr>
+    <tr><td>Edge TTS 请求频率限制</td><td>中</td><td>顺序合成 + 请求间隔 2 秒 + 结果缓存 IndexedDB，后续导出直接复用</td></tr>
+    <tr><td>Edge TTS 未来收费/限制浏览器</td><td>低</td><td>架构预留切换其他 TTS 的能力；备选：浏览器 Web Speech API（质量降级但可用）</td></tr>
+    <tr><td>高德 API 日调用量超限</td><td>低</td><td>POI 搜索缓存；路线数据一次计算后存入 IndexedDB 复用</td></tr>
+    <tr><td>视频导出时浏览器内存溢出</td><td>中</td><td>默认 720p；视频时长限制 5 分钟；分段渲染可后期优化</td></tr>
+    <tr><td>iOS Safari 不支持 MediaRecorder</td><td>高</td><td>检测兼容性并提示用户换 Chrome；长期可考虑服务端渲染方案</td></tr>
+    <tr><td>captureStream 在部分 GPU 上黑屏</td><td>中</td><td>降级方案：逐帧 requestAnimationFrame + Canvas drawImage 手动录制</td></tr>
+  </table>
+</div>
+
+<div style="text-align:center;color:#86868b;font-size:12px;margin-top:32px;padding-top:20px;border-top:1px solid #e8e8ed">
+  318路书 PRD v1.0 · 2026-05-30
+</div>
+
+</div>
+</body>
+</html>

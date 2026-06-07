@@ -1,0 +1,33 @@
+{
+  "name": "318-roadbook",
+  "private": true,
+  "version": "0.1.0",
+  "description": "在地图上规划自驾路线，自动生成带旁白讲解的飞行动画视频",
+  "license": "MIT",
+  "author": "jkvhb",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jkvhb/318.git"
+  },
+  "keywords": [
+    "travel",
+    "roadtrip",
+    "map",
+    "vue",
+    "318",
+    "川藏线"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.34"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.6",
+    "vite": "^8.0.12"
+  }
+}
