@@ -1,8 +1,8 @@
-# 318路书
+# WanderTalk
 
 > 在地图上规划自驾路线，自动生成带旁白讲解的飞行动画视频。
 
-318路书是一个面向自驾旅行者的路书规划与讲解视频生成工具。在地图上自由规划多日自驾路线、搜索沿途餐饮住宿景点，完成后一键生成「飞行动画 + AI 旁白讲解」的路书视频。
+WanderTalk 是一个面向自驾旅行者的路书规划与讲解视频生成工具。在地图上自由规划多日自驾路线、搜索沿途餐饮住宿景点，完成后一键生成「飞行动画 + AI 旁白讲解」的路书视频。
 
 ## ✨ 功能
 
@@ -16,8 +16,8 @@
 ## 🚀 快速开始
 
 ```bash
-git clone https://github.com/jkvhb/318.git
-cd 318
+git clone https://github.com/jkvhb/WanderTalk.git
+cd WanderTalk
 npm install
 npm run dev
 ```

@@ -1,5 +1,5 @@
 {
-  "name": "318-roadbook",
+  "name": "wandertalk",
   "private": true,
   "version": "0.1.0",
   "description": "在地图上规划自驾路线，自动生成带旁白讲解的飞行动画视频",
@@ -7,7 +7,7 @@
   "author": "jkvhb",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jkvhb/318.git"
+    "url": "https://github.com/jkvhb/WanderTalk.git"
   },
   "keywords": [
     "travel",
