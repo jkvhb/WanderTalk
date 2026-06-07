@@ -4,12 +4,15 @@ import { RouterLink } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
 import { useTripStore } from '../stores/trip'
 import { loadAmap } from '../composables/useAmap'
+import PoiSearchPanel from '../components/PoiSearchPanel.vue'
 
 const settings = useSettingsStore()
 const trip = useTripStore()
 const mapEl = ref(null)
 const error = ref('')
 let map = null
+
+const tab = ref('route') // 'route' | 'search'
 
 onMounted(async () => {
   if (!settings.hasAmapKey) {
@@ -37,36 +40,57 @@ onBeforeUnmount(() => {
 function loadPreset() {
   trip.loadPreset318()
 }
+
+function flyTo(poi) {
+  if (!map) return
+  map.setZoomAndCenter(14, [poi.lng, poi.lat])
+}
 </script>
 
 <template>
   <div class="flex h-full">
     <!-- 侧边栏 -->
     <aside class="w-80 shrink-0 border-r border-black/5 bg-white/60 overflow-auto p-4 space-y-4">
-      <div class="flex items-center justify-between">
-        <h2 class="font-semibold">路线</h2>
+      <div class="flex gap-1 bg-gray-100 rounded-lg p-1">
         <button
-          @click="loadPreset"
-          class="text-xs px-2.5 py-1 rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition"
-        >
-          加载 318 预设
-        </button>
+          @click="tab = 'route'"
+          :class="['flex-1 py-1.5 rounded-md text-sm transition', tab === 'route' ? 'bg-white shadow-sm' : 'text-gray-500']"
+        >路线</button>
+        <button
+          @click="tab = 'search'"
+          :class="['flex-1 py-1.5 rounded-md text-sm transition', tab === 'search' ? 'bg-white shadow-sm' : 'text-gray-500']"
+        >搜索</button>
       </div>
 
-      <div v-if="trip.plan" class="space-y-2">
-        <p class="text-xs text-gray-500">{{ trip.plan.name }}</p>
-        <div
-          v-for="day in trip.plan.days"
-          :key="day.dayNumber"
-          class="rounded-lg border border-gray-100 p-2.5"
-        >
-          <div class="text-sm font-medium">Day {{ day.dayNumber }} · 宿{{ day.overnight }}</div>
-          <div class="text-xs text-gray-400 mt-0.5">
-            {{ day.waypoints.map(w => w.name).join(' → ') }}
+      <!-- 路线标签 -->
+      <template v-if="tab === 'route'">
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold">路线</h2>
+          <button
+            @click="loadPreset"
+            class="text-xs px-2.5 py-1 rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition"
+          >加载 318 预设</button>
+        </div>
+        <div v-if="trip.plan" class="space-y-2">
+          <p class="text-xs text-gray-500">{{ trip.plan.name }}</p>
+          <div
+            v-for="day in trip.plan.days"
+            :key="day.dayNumber"
+            class="rounded-lg border border-gray-100 p-2.5"
+          >
+            <div class="text-sm font-medium">Day {{ day.dayNumber }} · 宿{{ day.overnight }}</div>
+            <div class="text-xs text-gray-400 mt-0.5">
+              {{ day.waypoints.map(w => w.name).join(' → ') }}
+            </div>
           </div>
         </div>
-      </div>
-      <p v-else class="text-sm text-gray-400">点击「加载 318 预设」开始。</p>
+        <p v-else class="text-sm text-gray-400">点击「加载 318 预设」开始。</p>
+      </template>
+
+      <!-- 搜索标签 -->
+      <template v-else>
+        <PoiSearchPanel @select="flyTo" />
+      </template>
     </aside>
 
     <!-- 地图 -->
