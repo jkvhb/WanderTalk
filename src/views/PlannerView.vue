@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
 import { useTripStore } from '../stores/trip'
@@ -11,6 +11,14 @@ const trip = useTripStore()
 const mapEl = ref(null)
 const error = ref('')
 let map = null
+let AMapRef = null
+let overlays = [] // 当前绘制在地图上的 marker / polyline，便于清除
+
+// 每天一种颜色，循环使用
+const DAY_COLORS = [
+  '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6',
+  '#ec4899', '#14b8a6', '#f97316', '#6366f1',
+]
 
 const tab = ref('route') // 'route' | 'search'
 
@@ -20,7 +28,8 @@ onMounted(async () => {
     return
   }
   try {
-    const AMap = await loadAmap(settings.amapKey)
+    const AMap = await loadAmap(settings.amapKey, settings.amapSecurityCode)
+    AMapRef = AMap
     map = new AMap.Map(mapEl.value, {
       zoom: 6,
       center: [101.5, 30.0],
@@ -28,14 +37,67 @@ onMounted(async () => {
     })
     map.addControl(new AMap.Scale())
     map.addControl(new AMap.ToolBar({ position: 'RB' }))
+    // 地图就绪后，如果已有路线则绘制
+    if (trip.plan) drawPlan()
   } catch (e) {
     error.value = '地图加载失败：' + e.message
   }
 })
 
 onBeforeUnmount(() => {
+  clearOverlays()
   if (map) { map.destroy(); map = null }
 })
+
+// 路线数据变化时重绘
+watch(() => trip.plan, () => {
+  if (map) drawPlan()
+})
+
+function clearOverlays() {
+  if (map && overlays.length) map.remove(overlays)
+  overlays = []
+}
+
+function drawPlan() {
+  if (!map || !AMapRef) return
+  clearOverlays()
+  if (!trip.plan) return
+
+  const AMap = AMapRef
+  trip.plan.days.forEach((day, i) => {
+    const color = DAY_COLORS[i % DAY_COLORS.length]
+    const path = day.waypoints.map((w) => [w.lng, w.lat])
+
+    // 当天连线（直线连接，真实驾车路径为 Phase 2）
+    if (path.length > 1) {
+      overlays.push(
+        new AMap.Polyline({
+          path,
+          strokeColor: color,
+          strokeWeight: 5,
+          strokeOpacity: 0.85,
+          lineJoin: 'round',
+        }),
+      )
+    }
+
+    // 途经点标记
+    day.waypoints.forEach((w) => {
+      overlays.push(
+        new AMap.Marker({
+          position: [w.lng, w.lat],
+          title: `Day ${day.dayNumber} · ${w.name}`,
+          anchor: 'bottom-center',
+        }),
+      )
+    })
+  })
+
+  map.add(overlays)
+  // 自动缩放到路线范围
+  map.setFitView(overlays, false, [40, 40, 40, 40])
+}
 
 function loadPreset() {
   trip.loadPreset318()

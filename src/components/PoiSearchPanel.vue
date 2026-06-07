@@ -24,7 +24,7 @@ async function search() {
   error.value = ''
   results.value = []
   try {
-    const AMap = await loadAmap(settings.amapKey)
+    const AMap = await loadAmap(settings.amapKey, settings.amapSecurityCode)
     const query = [activeCat.value, keyword.value].filter(Boolean).join(' ')
     const placeSearch = new AMap.PlaceSearch({ pageSize: 15, pageIndex: 1 })
     placeSearch.search(query, (status, result) => {
@@ -37,8 +37,15 @@ async function search() {
           lng: p.location.lng,
           lat: p.location.lat,
         }))
-      } else {
+      } else if (status === 'no_data') {
         error.value = '未找到结果'
+      } else {
+        // 暴露高德返回的真实错误，便于排查（如 INVALID_USER_SCODE 表示安全密钥缺失/错误）
+        const info = typeof result === 'string' ? result : result?.info || '未知错误'
+        error.value = `搜索失败：${info}`
+        if (/scode/i.test(info)) {
+          error.value += '（请在「设置」中填写高德安全密钥 securityJsCode）'
+        }
       }
     })
   } catch (e) {

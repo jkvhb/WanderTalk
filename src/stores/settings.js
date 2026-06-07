@@ -3,12 +3,14 @@ import { ref, computed } from 'vue'
 
 const KEYS = {
   amapKey: '318:amapKey',
+  amapSecurityCode: '318:amapSecurityCode',
   llmKey: '318:llmKey',
   voice: '318:voice',
 }
 
 export const useSettingsStore = defineStore('settings', () => {
   const amapKey = ref(localStorage.getItem(KEYS.amapKey) || '')
+  const amapSecurityCode = ref(localStorage.getItem(KEYS.amapSecurityCode) || '')
   const llmKey = ref(localStorage.getItem(KEYS.llmKey) || '')
   const voice = ref(localStorage.getItem(KEYS.voice) || 'xiaoxiao')
 
@@ -17,6 +19,11 @@ export const useSettingsStore = defineStore('settings', () => {
   function setAmapKey(v) {
     amapKey.value = v.trim()
     localStorage.setItem(KEYS.amapKey, amapKey.value)
+  }
+
+  function setAmapSecurityCode(v) {
+    amapSecurityCode.value = v.trim()
+    localStorage.setItem(KEYS.amapSecurityCode, amapSecurityCode.value)
   }
 
   function setLlmKey(v) {
@@ -29,5 +36,15 @@ export const useSettingsStore = defineStore('settings', () => {
     localStorage.setItem(KEYS.voice, v)
   }
 
-  return { amapKey, llmKey, voice, hasAmapKey, setAmapKey, setLlmKey, setVoice }
+  return {
+    amapKey,
+    amapSecurityCode,
+    llmKey,
+    voice,
+    hasAmapKey,
+    setAmapKey,
+    setAmapSecurityCode,
+    setLlmKey,
+    setVoice,
+  }
 })

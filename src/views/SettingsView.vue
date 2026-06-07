@@ -4,11 +4,13 @@ import { useSettingsStore } from '../stores/settings'
 
 const settings = useSettingsStore()
 const amapInput = ref(settings.amapKey)
+const amapSecurityInput = ref(settings.amapSecurityCode)
 const llmInput = ref(settings.llmKey)
 const saved = ref(false)
 
 function save() {
   settings.setAmapKey(amapInput.value)
+  settings.setAmapSecurityCode(amapSecurityInput.value)
   settings.setLlmKey(llmInput.value)
   saved.value = true
   setTimeout(() => (saved.value = false), 2000)
@@ -30,6 +32,19 @@ function save() {
         />
         <p class="text-xs text-gray-400 mt-1">
           前往 <a href="https://lbs.amap.com/" target="_blank" class="text-accent">高德开放平台</a> 申请，服务平台选「Web 端 (JS API)」。
+        </p>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">高德安全密钥 securityJsCode</label>
+        <input
+          v-model="amapSecurityInput"
+          type="text"
+          placeholder="与上面 Key 配套的「安全密钥」"
+          class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-accent focus:outline-none text-sm"
+        />
+        <p class="text-xs text-gray-400 mt-1">
+          JS API 2.0 必填：POI 搜索、路径规划等服务需要安全密钥。在控制台 Key 详情页与 Key 一同生成。
         </p>
       </div>
 
