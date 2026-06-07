@@ -31,3 +31,6 @@ dist-ssr
 
 # Test
 coverage
+
+# Claude Code local config (per-machine, not shared)
+.claude/settings.local.json
