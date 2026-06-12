@@ -4,12 +4,16 @@ import { RouterLink } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
 import { useTripStore } from '../stores/trip'
 import { loadAmap } from '../composables/useAmap'
+import { planDrivingRoute } from '../composables/useDriving'
+import { wgs84ToGcj02, wgs84PathToGcj02 } from '../utils/coords'
 import PoiSearchPanel from '../components/PoiSearchPanel.vue'
 
 const settings = useSettingsStore()
 const trip = useTripStore()
 const mapEl = ref(null)
 const error = ref('')
+const calcError = ref('')
+const calculating = ref(false)
 let map = null
 let AMapRef = null
 let overlays = [] // 当前绘制在地图上的 marker / polyline，便于清除
@@ -37,7 +41,6 @@ onMounted(async () => {
     })
     map.addControl(new AMap.Scale())
     map.addControl(new AMap.ToolBar({ position: 'RB' }))
-    // 地图就绪后，如果已有路线则绘制
     if (trip.plan) drawPlan()
   } catch (e) {
     error.value = '地图加载失败：' + e.message
@@ -49,14 +52,20 @@ onBeforeUnmount(() => {
   if (map) { map.destroy(); map = null }
 })
 
-// 路线数据变化时重绘
+// 路线数据（含节点编辑、segments 计算结果）变化时重绘
 watch(() => trip.plan, () => {
   if (map) drawPlan()
-})
+}, { deep: true })
 
 function clearOverlays() {
   if (map && overlays.length) map.remove(overlays)
   overlays = []
+}
+
+// 数据模型存 WGS-84；高德地图显示前转 GCJ-02
+function toGcj(w) {
+  const p = wgs84ToGcj02(w.lng, w.lat)
+  return [p.lng, p.lat]
 }
 
 function drawPlan() {
@@ -67,40 +76,87 @@ function drawPlan() {
   const AMap = AMapRef
   trip.plan.days.forEach((day, i) => {
     const color = DAY_COLORS[i % DAY_COLORS.length]
-    const path = day.waypoints.map((w) => [w.lng, w.lat])
 
-    // 当天连线（直线连接，真实驾车路径为 Phase 2）
-    if (path.length > 1) {
+    if (day.segments?.length) {
+      // 已计算的真实驾车路线
+      for (const seg of day.segments) {
+        overlays.push(
+          new AMap.Polyline({
+            path: wgs84PathToGcj02(seg.path),
+            strokeColor: color,
+            strokeWeight: 5,
+            strokeOpacity: 0.85,
+            lineJoin: 'round',
+          }),
+        )
+      }
+    } else if (day.waypoints.length > 1) {
+      // 未计算路线时退化为虚线直连
       overlays.push(
         new AMap.Polyline({
-          path,
+          path: day.waypoints.map(toGcj),
           strokeColor: color,
-          strokeWeight: 5,
-          strokeOpacity: 0.85,
+          strokeWeight: 4,
+          strokeOpacity: 0.5,
+          strokeStyle: 'dashed',
           lineJoin: 'round',
         }),
       )
     }
 
-    // 途经点标记
     day.waypoints.forEach((w) => {
-      overlays.push(
-        new AMap.Marker({
-          position: [w.lng, w.lat],
-          title: `Day ${day.dayNumber} · ${w.name}`,
-          anchor: 'bottom-center',
-        }),
-      )
+      const marker = new AMap.Marker({
+        position: toGcj(w),
+        title: `Day ${day.dayNumber} · ${w.name}`,
+        anchor: 'bottom-center',
+      })
+      marker.on('click', () => {
+        const info = new AMap.InfoWindow({
+          content: `<div style="font-size:13px;padding:2px 4px;line-height:1.6">
+            <b>${w.name}</b><br>
+            Day ${day.dayNumber}${day.overnight ? ' · 宿' + day.overnight : ''}
+            ${w.altitude ? '<br>海拔 ' + w.altitude + 'm' : ''}
+          </div>`,
+          offset: new AMap.Pixel(0, -30),
+        })
+        info.open(map, marker.getPosition())
+      })
+      overlays.push(marker)
     })
   })
 
-  map.add(overlays)
-  // 自动缩放到路线范围
-  map.setFitView(overlays, false, [40, 40, 40, 40])
+  if (overlays.length) {
+    map.add(overlays)
+    map.setFitView(overlays, false, [40, 40, 40, 40])
+  }
 }
 
 function loadPreset() {
   trip.loadPreset318()
+}
+
+// 逐天逐段计算驾车路线；已算过的天跳过；失败保留已算结果，可重试
+async function calcRoutes() {
+  if (!AMapRef || !trip.plan || calculating.value) return
+  calculating.value = true
+  calcError.value = ''
+  try {
+    for (const day of trip.plan.days) {
+      if (day.segments?.length || day.waypoints.length < 2) continue
+      const segments = []
+      for (let i = 0; i < day.waypoints.length - 1; i++) {
+        const from = day.waypoints[i]
+        const to = day.waypoints[i + 1]
+        const route = await planDrivingRoute(AMapRef, from, to)
+        segments.push({ fromName: from.name, toName: to.name, ...route })
+      }
+      trip.setDaySegments(day.dayNumber, segments)
+    }
+  } catch (e) {
+    calcError.value = '路线计算失败：' + e.message + '（已算好的天已保留，可重试）'
+  } finally {
+    calculating.value = false
+  }
 }
 
 function flyTo(poi) {
@@ -135,6 +191,12 @@ function flyTo(poi) {
         </div>
         <div v-if="trip.plan" class="space-y-2">
           <p class="text-xs text-gray-500">{{ trip.plan.name }}</p>
+          <button
+            @click="calcRoutes"
+            :disabled="calculating"
+            class="w-full py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
+          >{{ calculating ? '计算中…' : '计算驾车路线' }}</button>
+          <p v-if="calcError" class="text-xs text-red-500">{{ calcError }}</p>
           <div
             v-for="day in trip.plan.days"
             :key="day.dayNumber"
