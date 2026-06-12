@@ -7,6 +7,7 @@ import { loadAmap } from '../composables/useAmap'
 import { planDrivingRoute } from '../composables/useDriving'
 import { wgs84ToGcj02, wgs84PathToGcj02 } from '../utils/coords'
 import PoiSearchPanel from '../components/PoiSearchPanel.vue'
+import DayCard from '../components/DayCard.vue'
 
 const settings = useSettingsStore()
 const trip = useTripStore()
@@ -197,16 +198,16 @@ function flyTo(poi) {
             class="w-full py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
           >{{ calculating ? '计算中…' : '计算驾车路线' }}</button>
           <p v-if="calcError" class="text-xs text-red-500">{{ calcError }}</p>
-          <div
-            v-for="day in trip.plan.days"
+          <DayCard
+            v-for="(day, i) in trip.plan.days"
             :key="day.dayNumber"
-            class="rounded-lg border border-gray-100 p-2.5"
-          >
-            <div class="text-sm font-medium">Day {{ day.dayNumber }} · 宿{{ day.overnight }}</div>
-            <div class="text-xs text-gray-400 mt-0.5">
-              {{ day.waypoints.map(w => w.name).join(' → ') }}
-            </div>
-          </div>
+            :day="day"
+            :color="DAY_COLORS[i % DAY_COLORS.length]"
+          />
+          <button
+            @click="trip.addDay()"
+            class="w-full py-1.5 rounded-lg border border-dashed border-gray-300 text-sm text-gray-400 hover:border-accent hover:text-accent transition"
+          >+ 添加一天</button>
         </div>
         <p v-else class="text-sm text-gray-400">点击「加载 318 预设」开始。</p>
       </template>
