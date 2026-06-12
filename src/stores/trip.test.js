@@ -36,3 +36,125 @@ describe('trip store', () => {
     expect(t.plan.days[0].waypoints[0].name).toContain('成都')
   })
 })
+
+describe('trip store 编辑', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('newEmptyPlan 创建含 1 个空天的路书', () => {
+    const t = useTripStore()
+    t.newEmptyPlan()
+    expect(t.dayCount).toBe(1)
+    expect(t.plan.days[0].waypoints).toEqual([])
+    expect(t.plan.days[0].segments).toBeNull()
+  })
+
+  it('loadPreset318 归一化后每天都有 segments 字段', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    for (const day of t.plan.days) {
+      expect(day.segments).toBeNull()
+    }
+  })
+
+  it('addDay 在末尾追加空天并连续编号', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.addDay()
+    expect(t.dayCount).toBe(10)
+    expect(t.plan.days[9].dayNumber).toBe(10)
+    expect(t.plan.days[9].waypoints).toEqual([])
+  })
+
+  it('removeDay 删除并重排 dayNumber', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.removeDay(2)
+    expect(t.dayCount).toBe(8)
+    expect(t.plan.days.map((d) => d.dayNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    // 原 Day 3（理塘）现在是 Day 2
+    expect(t.plan.days[1].overnight).toBe('理塘')
+  })
+
+  it('addWaypoint 添加节点并使当天 segments 失效', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.setDaySegments(1, [{ fromName: 'a', toName: 'b', path: [], distance: 1, duration: 1 }])
+    t.addWaypoint(1, { name: '新节点', lng: 103.5, lat: 30.1 })
+    expect(t.plan.days[0].waypoints.at(-1).name).toBe('新节点')
+    expect(t.plan.days[0].segments).toBeNull()
+  })
+
+  it('removeWaypoint 删除节点并使 segments 失效', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.setDaySegments(1, [])
+    t.removeWaypoint(1, 0)
+    expect(t.plan.days[0].waypoints[0].name).toBe('雅安')
+    expect(t.plan.days[0].segments).toBeNull()
+  })
+
+  it('moveWaypoint 上移/下移节点', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.moveWaypoint(1, 0, 1)
+    expect(t.plan.days[0].waypoints[0].name).toBe('雅安')
+    expect(t.plan.days[0].waypoints[1].name).toBe('成都')
+    // 越界移动不生效
+    t.moveWaypoint(1, 0, -1)
+    expect(t.plan.days[0].waypoints[0].name).toBe('雅安')
+  })
+
+  it('updateWaypoint 仅改名不清除 segments，改坐标清除', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    const segs = [{ fromName: 'a', toName: 'b', path: [], distance: 1, duration: 1 }]
+    t.setDaySegments(1, segs)
+    t.updateWaypoint(1, 0, { name: '成都市' })
+    expect(t.plan.days[0].segments).not.toBeNull()
+    t.updateWaypoint(1, 0, { lng: 104.1 })
+    expect(t.plan.days[0].segments).toBeNull()
+  })
+
+  it('setOvernight 修改住宿地', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.setOvernight(1, ' 康定城 ')
+    expect(t.plan.days[0].overnight).toBe('康定城')
+  })
+
+  it('exportJson / importJson round trip', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    const json = t.exportJson()
+    t.clear()
+    t.importJson(json)
+    expect(t.dayCount).toBe(9)
+    expect(t.plan.days[0].waypoints[0].name).toContain('成都')
+  })
+
+  it('importJson 拒绝非法 JSON', () => {
+    const t = useTripStore()
+    expect(() => t.importJson('not json')).toThrow('不是有效的 JSON 文件')
+  })
+
+  it('importJson 拒绝缺少 days 的数据', () => {
+    const t = useTripStore()
+    expect(() => t.importJson('{"name":"x"}')).toThrow('days')
+  })
+
+  it('importJson 拒绝缺少坐标的节点', () => {
+    const t = useTripStore()
+    const bad = JSON.stringify({ days: [{ waypoints: [{ name: 'x' }] }] })
+    expect(() => t.importJson(bad)).toThrow('name / lng / lat')
+  })
+
+  it('replacePlan 归一化外部数据', () => {
+    const t = useTripStore()
+    t.replacePlan({ days: [{ waypoints: [{ name: 'a', lng: 100, lat: 30 }] }] })
+    expect(t.plan.name).toBe('未命名路书')
+    expect(t.plan.days[0].dayNumber).toBe(1)
+    expect(t.plan.days[0].segments).toBeNull()
+  })
+})
