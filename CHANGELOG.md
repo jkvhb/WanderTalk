@@ -14,6 +14,10 @@
 
 ### Changed
 - 旁白按节点锚定并记录每段音频时长，为 Phase 4「旁白驱动飞行动画」备好输入
+- 批量合成 / AI 生成进度移入 store，切换视图任务不中断、进度续显；完成后显示状态、可重跑；AI 重新生成保留上一稿可一键切回
+
+### Fixed
+- 试听/批量合成前清洗 SSML 为纯文本，修复带 `<break>`/`<emphasis>` 的文案合成空音频、试听报「no supported source」（Edge 免费朗读不支持内联 SSML）
 
 ### 对 PRD v2 的偏差（见 docs/specs/2026-06-13-phase3-narration-tts-design.md）
 - 个人版引入薄后端；TTS 用后端 edge-tts（Web Speech 作适配器预留兜底）；LLM 用 DeepSeek；旁白按节点锚定 + 记录音频时长
