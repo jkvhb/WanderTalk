@@ -8,7 +8,11 @@ function normalizeDay(day, i) {
   return {
     dayNumber: i + 1,
     overnight: day.overnight ?? '',
-    waypoints: (day.waypoints ?? []).map((w) => ({ ...w, narration: w.narration ?? '' })),
+    waypoints: (day.waypoints ?? []).map((w) => ({
+      ...w,
+      narration: w.narration ?? '',
+      prevNarration: w.prevNarration ?? '',
+    })),
     segments: day.segments ?? null,
   }
 }
@@ -119,10 +123,22 @@ export const useTripStore = defineStore('trip', () => {
   }
 
   // —— 旁白 ——
-  function setNarration(dayNumber, index, text) {
+  function setNarration(dayNumber, index, text, { keepPrev = false } = {}) {
     const day = findDay(dayNumber)
     const wp = day?.waypoints[index]
-    if (wp) wp.narration = text.trim()
+    if (!wp) return
+    if (keepPrev && wp.narration) wp.prevNarration = wp.narration
+    wp.narration = text.trim()
+  }
+
+  // 在当前稿与上一稿之间切换（可来回对比）
+  function restorePrevNarration(dayNumber, index) {
+    const day = findDay(dayNumber)
+    const wp = day?.waypoints[index]
+    if (!wp || !wp.prevNarration) return
+    const cur = wp.narration
+    wp.narration = wp.prevNarration
+    wp.prevNarration = cur
   }
 
   function setVoice(slug) {
@@ -186,6 +202,7 @@ export const useTripStore = defineStore('trip', () => {
     moveWaypoint,
     setDaySegments,
     setNarration,
+    restorePrevNarration,
     setVoice,
     setRate,
     loadPresetNarration,

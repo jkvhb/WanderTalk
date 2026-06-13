@@ -225,4 +225,16 @@ describe('trip store 编辑', () => {
     const lastDay = t.plan.days.at(-1)
     expect(lastDay.waypoints.at(-1).narration).toContain('拉萨')
   })
+
+  it('setNarration keepPrev 保留旧稿，restorePrevNarration 来回切换', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.setNarration(1, 0, '初稿')
+    t.setNarration(1, 0, '新稿', { keepPrev: true })
+    expect(t.plan.days[0].waypoints[0].narration).toBe('新稿')
+    expect(t.plan.days[0].waypoints[0].prevNarration).toBe('初稿')
+    t.restorePrevNarration(1, 0)
+    expect(t.plan.days[0].waypoints[0].narration).toBe('初稿')
+    expect(t.plan.days[0].waypoints[0].prevNarration).toBe('新稿')
+  })
 })
