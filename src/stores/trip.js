@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { preset318 } from '../data/preset318'
+import { preset318Narration } from '../data/preset318Narration'
 
 // 单天结构归一化：保证 dayNumber 连续、segments 字段存在。
 function normalizeDay(day, i) {
@@ -132,6 +133,16 @@ export const useTripStore = defineStore('trip', () => {
     if (plan.value) plan.value.rate = Math.max(0.5, Math.min(2, rate))
   }
 
+  function loadPresetNarration() {
+    if (!plan.value) return
+    for (const day of plan.value.days) {
+      for (const wp of day.waypoints) {
+        const text = preset318Narration[wp.name]
+        if (text) wp.narration = text
+      }
+    }
+  }
+
   // —— JSON 导入导出 ——
   function exportJson() {
     return JSON.stringify(plan.value, null, 2)
@@ -177,6 +188,7 @@ export const useTripStore = defineStore('trip', () => {
     setNarration,
     setVoice,
     setRate,
+    loadPresetNarration,
     exportJson,
     importJson,
   }

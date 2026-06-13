@@ -216,4 +216,13 @@ describe('trip store 编辑', () => {
     expect(t.plan.voice).toBe('xiaoyi')
     expect(t.plan.days[0].waypoints[0].narration).toBe('成都旁白')
   })
+
+  it('loadPresetNarration 按节点名填入预设文案', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.loadPresetNarration()
+    expect(t.plan.days[0].waypoints[0].narration).toContain('成都')
+    const lastDay = t.plan.days.at(-1)
+    expect(lastDay.waypoints.at(-1).narration).toContain('拉萨')
+  })
 })
