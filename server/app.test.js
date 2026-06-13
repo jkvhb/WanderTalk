@@ -32,3 +32,26 @@ describe('POST /api/tts', () => {
     expect(res.body.error).toMatch(/text/)
   })
 })
+
+describe('POST /api/narration', () => {
+  it('缺 apiKey 返回 400', async () => {
+    const res = await request(makeApp())
+      .post('/api/narration')
+      .send({ items: [{ nodeName: 'x', dayNumber: 1 }] })
+    expect(res.status).toBe(400)
+  })
+  it('items 为空返回 400', async () => {
+    const res = await request(makeApp()).post('/api/narration').send({ apiKey: 'sk', items: [] })
+    expect(res.status).toBe(400)
+  })
+  it('正常返回 results', async () => {
+    const app = makeApp({
+      generateNarration: async ({ items }) => items.map((i) => ({ ...i, narration: '稿:' + i.nodeName })),
+    })
+    const res = await request(app)
+      .post('/api/narration')
+      .send({ apiKey: 'sk', items: [{ nodeName: '康定', dayNumber: 1 }] })
+    expect(res.status).toBe(200)
+    expect(res.body.results[0].narration).toBe('稿:康定')
+  })
+})
