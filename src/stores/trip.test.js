@@ -178,4 +178,42 @@ describe('trip store 编辑', () => {
     expect(t.plan.days[0].dayNumber).toBe(1)
     expect(t.plan.days[0].segments).toBeNull()
   })
+
+  it('归一化后每个节点有 narration 字段，路书有 voice/rate', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    expect(t.plan.voice).toBe('xiaoxiao')
+    expect(t.plan.rate).toBe(1)
+    expect(t.plan.days[0].waypoints[0].narration).toBe('')
+  })
+
+  it('setNarration 设置节点旁白（去空格）', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.setNarration(1, 0, '  这里是成都  ')
+    expect(t.plan.days[0].waypoints[0].narration).toBe('这里是成都')
+  })
+
+  it('setVoice / setRate 修改全局音色与语速（rate 夹到 0.5~2）', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.setVoice('yunxi')
+    t.setRate(3)
+    expect(t.plan.voice).toBe('yunxi')
+    expect(t.plan.rate).toBe(2)
+    t.setRate(0.1)
+    expect(t.plan.rate).toBe(0.5)
+  })
+
+  it('exportJson/importJson 保留 narration 与 voice/rate', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.setNarration(1, 0, '成都旁白')
+    t.setVoice('xiaoyi')
+    const json = t.exportJson()
+    t.clear()
+    t.importJson(json)
+    expect(t.plan.voice).toBe('xiaoyi')
+    expect(t.plan.days[0].waypoints[0].narration).toBe('成都旁白')
+  })
 })

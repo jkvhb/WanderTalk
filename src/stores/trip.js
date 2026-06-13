@@ -7,7 +7,7 @@ function normalizeDay(day, i) {
   return {
     dayNumber: i + 1,
     overnight: day.overnight ?? '',
-    waypoints: (day.waypoints ?? []).map((w) => ({ ...w })),
+    waypoints: (day.waypoints ?? []).map((w) => ({ ...w, narration: w.narration ?? '' })),
     segments: day.segments ?? null,
   }
 }
@@ -16,6 +16,8 @@ function normalizePlan(raw) {
   return {
     name: raw.name ?? '未命名路书',
     description: raw.description ?? '',
+    voice: raw.voice ?? 'xiaoxiao',
+    rate: typeof raw.rate === 'number' ? raw.rate : 1,
     days: (raw.days ?? []).map(normalizeDay),
   }
 }
@@ -115,6 +117,21 @@ export const useTripStore = defineStore('trip', () => {
     if (day) day.segments = segments
   }
 
+  // —— 旁白 ——
+  function setNarration(dayNumber, index, text) {
+    const day = findDay(dayNumber)
+    const wp = day?.waypoints[index]
+    if (wp) wp.narration = text.trim()
+  }
+
+  function setVoice(slug) {
+    if (plan.value) plan.value.voice = slug
+  }
+
+  function setRate(rate) {
+    if (plan.value) plan.value.rate = Math.max(0.5, Math.min(2, rate))
+  }
+
   // —— JSON 导入导出 ——
   function exportJson() {
     return JSON.stringify(plan.value, null, 2)
@@ -157,6 +174,9 @@ export const useTripStore = defineStore('trip', () => {
     updateWaypoint,
     moveWaypoint,
     setDaySegments,
+    setNarration,
+    setVoice,
+    setRate,
     exportJson,
     importJson,
   }
