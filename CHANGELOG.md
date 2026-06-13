@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### Added
+- 视频工作室旁白工作台：节点级旁白编辑、晓晓/云希/晓伊 音色与 0.5x~2.0x 语速
+- 后端 edge-tts 语音合成（`/api/tts`）+ 音频按内容缓存到 IndexedDB（含时长）
+- AI 旁白草稿生成（`/api/narration` 代理 DeepSeek，OpenAI 兼容）
+- 318 川藏线预设旁白文案一键填充
+- 新增极简后端 `server/`（Express）与前后端联跑脚本（concurrently + Vite proxy）
+
+### Changed
+- 旁白按节点锚定并记录每段音频时长，为 Phase 4「旁白驱动飞行动画」备好输入
+
+### 对 PRD v2 的偏差（见 docs/specs/2026-06-13-phase3-narration-tts-design.md）
+- 个人版引入薄后端；TTS 用后端 edge-tts（Web Speech 作适配器预留兜底）；LLM 用 DeepSeek；旁白按节点锚定 + 记录音频时长
+
 ## [0.2.0] - 2026-06-13
 
 第二阶段：路线编辑与地图交互。

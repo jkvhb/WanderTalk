@@ -49,11 +49,11 @@ function save() {
       </div>
 
       <div>
-        <label class="block text-sm font-medium mb-1">LLM API Key（旁白生成，可选）</label>
+        <label class="block text-sm font-medium mb-1">DeepSeek API Key（AI 旁白生成，可选）</label>
         <input
           v-model="llmInput"
           type="password"
-          placeholder="Claude / 通义千问 API Key"
+          placeholder="在 platform.deepseek.com 申请的 API Key"
           class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-accent focus:outline-none text-sm"
         />
       </div>
