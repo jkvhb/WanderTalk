@@ -76,6 +76,15 @@ export const useTripStore = defineStore('trip', () => {
     day.segments = null
   }
 
+  // 在指定下标插入节点（index 会被夹到 [0, length]）；当天路线失效。
+  function insertWaypointAt(dayNumber, index, wp) {
+    const day = findDay(dayNumber)
+    if (!day) return
+    const i = Math.max(0, Math.min(index, day.waypoints.length))
+    day.waypoints.splice(i, 0, { ...wp })
+    day.segments = null
+  }
+
   function removeWaypoint(dayNumber, index) {
     const day = findDay(dayNumber)
     if (!day) return
@@ -143,6 +152,7 @@ export const useTripStore = defineStore('trip', () => {
     removeDay,
     setOvernight,
     addWaypoint,
+    insertWaypointAt,
     removeWaypoint,
     updateWaypoint,
     moveWaypoint,

@@ -5,9 +5,11 @@ import { useSettingsStore } from '../stores/settings'
 import { useTripStore } from '../stores/trip'
 import { loadAmap } from '../composables/useAmap'
 import { planDrivingRoute } from '../composables/useDriving'
+import { searchNearbyPoi } from '../composables/useNearby'
 import { wgs84ToGcj02, wgs84PathToGcj02, gcj02ToWgs84 } from '../utils/coords'
 import PoiSearchPanel from '../components/PoiSearchPanel.vue'
 import DayCard from '../components/DayCard.vue'
+import MapAddPopup from '../components/MapAddPopup.vue'
 
 const settings = useSettingsStore()
 const trip = useTripStore()
@@ -37,6 +39,9 @@ watch(
 )
 
 const addNodeMode = ref(false)
+const clickLoading = ref(false)
+const clickError = ref('')
+const mapPopup = ref(null) // { candidate, x, y, initialDay } | null
 const importFileEl = ref(null)
 const importError = ref('')
 
@@ -47,13 +52,48 @@ function addPoiToRoute(poi) {
   trip.addWaypoint(targetDay.value, { name: poi.name, lng: p.lng, lat: p.lat })
 }
 
-// 地图点击坐标是 GCJ-02，入库前转 WGS-84
-function onMapClick(e) {
-  if (!addNodeMode.value) return
+// 浮窗定位：把像素夹到地图容器内，避免溢出
+function clampPopupPos(px, py) {
+  const W = mapEl.value?.clientWidth ?? 800
+  const H = mapEl.value?.clientHeight ?? 600
+  return {
+    x: Math.max(8, Math.min(px, W - 264)),
+    y: Math.max(8, Math.min(py, H - 120)),
+  }
+}
+
+// 进入「点图添加」模式后点击地图：就近搜索 POI → 弹浮窗（坐标 GCJ-02 → WGS-84）
+async function onMapClick(e) {
+  if (!addNodeMode.value || clickLoading.value) return
   if (!trip.plan) trip.newEmptyPlan()
-  const p = gcj02ToWgs84(e.lnglat.getLng(), e.lnglat.getLat())
-  trip.addWaypoint(targetDay.value, { name: '自定义节点', lng: p.lng, lat: p.lat })
-  addNodeMode.value = false
+  clickError.value = ''
+  clickLoading.value = true
+  const px = e.pixel
+  try {
+    const poi = await searchNearbyPoi(AMapRef, e.lnglat.getLng(), e.lnglat.getLat())
+    const p = gcj02ToWgs84(poi.lng, poi.lat)
+    const pos = clampPopupPos(px?.getX?.() ?? px?.x ?? 16, px?.getY?.() ?? px?.y ?? 16)
+    mapPopup.value = {
+      candidate: { name: poi.name, address: poi.address, lng: p.lng, lat: p.lat },
+      x: pos.x,
+      y: pos.y,
+      initialDay: targetDay.value,
+    }
+    addNodeMode.value = false
+  } catch (err) {
+    clickError.value = '获取地点失败：' + err.message
+  } finally {
+    clickLoading.value = false
+  }
+}
+
+function onPopupConfirm({ dayNumber, index, waypoint }) {
+  trip.insertWaypointAt(dayNumber, index, waypoint)
+  mapPopup.value = null
+}
+
+function onPopupCancel() {
+  mapPopup.value = null
 }
 
 function exportJson() {
@@ -309,7 +349,22 @@ function flyTo(poi) {
         @click="addNodeMode = !addNodeMode"
         :class="['absolute top-3 left-3 z-10 px-3 py-1.5 rounded-lg text-xs shadow-sm transition',
                  addNodeMode ? 'bg-accent text-white' : 'bg-white/90 text-gray-600 hover:text-accent']"
-      >{{ addNodeMode ? '点击地图添加到 Day ' + targetDay + '…（再点取消）' : '📍 点图添加节点' }}</button>
+      >{{ clickLoading ? '查询中…' : addNodeMode ? '点击地图选择地点…（再点取消）' : '📍 点图添加节点' }}</button>
+      <p
+        v-if="clickError"
+        class="absolute top-14 left-3 z-10 max-w-xs px-3 py-1.5 rounded-lg bg-red-50 text-red-500 text-xs shadow-sm"
+      >{{ clickError }}</p>
+
+      <MapAddPopup
+        v-if="mapPopup"
+        :candidate="mapPopup.candidate"
+        :x="mapPopup.x"
+        :y="mapPopup.y"
+        :initial-day="mapPopup.initialDay"
+        @confirm="onPopupConfirm"
+        @cancel="onPopupCancel"
+      />
+
       <div
         v-if="error"
         class="absolute inset-0 flex flex-col items-center justify-center text-center gap-2 bg-gray-50"

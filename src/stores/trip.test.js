@@ -86,6 +86,27 @@ describe('trip store 编辑', () => {
     expect(t.plan.days[0].segments).toBeNull()
   })
 
+  it('insertWaypointAt 在指定位置插入并使 segments 失效', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.setDaySegments(1, [{ fromName: 'a', toName: 'b', path: [], distance: 1, duration: 1 }])
+    // Day 1 原首节点为「成都」，在其后（下标 1）插入
+    t.insertWaypointAt(1, 1, { name: '世纪城地铁站', lng: 104.06, lat: 30.57 })
+    expect(t.plan.days[0].waypoints[1].name).toBe('世纪城地铁站')
+    expect(t.plan.days[0].segments).toBeNull()
+  })
+
+  it('insertWaypointAt 下标越界时夹到首/尾', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    const n = t.plan.days[0].waypoints.length
+    t.insertWaypointAt(1, -5, { name: '最前', lng: 100, lat: 30 })
+    expect(t.plan.days[0].waypoints[0].name).toBe('最前')
+    t.insertWaypointAt(1, 999, { name: '最后', lng: 101, lat: 30 })
+    expect(t.plan.days[0].waypoints.at(-1).name).toBe('最后')
+    expect(t.plan.days[0].waypoints.length).toBe(n + 2)
+  })
+
   it('removeWaypoint 删除节点并使 segments 失效', () => {
     const t = useTripStore()
     t.loadPreset318()
