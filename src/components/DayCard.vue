@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import draggable from 'vuedraggable'
 import { useTripStore } from '../stores/trip'
 import { formatDistance, formatDuration } from '../utils/format'
 
@@ -18,6 +19,16 @@ const summary = computed(() => {
   const dur = segs.reduce((s, x) => s + x.duration, 0)
   return `${formatDistance(dist)} · ${formatDuration(dur)}`
 })
+
+// vuedraggable 需要稳定唯一 key；名称可能重复，用 名称+坐标 组合
+function wpKey(w) {
+  return `${w.name}@${w.lng},${w.lat}`
+}
+
+// 拖拽改变顺序后，当天已算驾车路线失效（退回虚线，需重算）
+function onReorder() {
+  trip.setDaySegments(props.day.dayNumber, null)
+}
 </script>
 
 <template>
@@ -49,35 +60,39 @@ const summary = computed(() => {
         />
       </label>
 
-      <div
-        v-for="(w, i) in day.waypoints"
-        :key="i"
-        class="flex items-center gap-1"
+      <draggable
+        :list="day.waypoints"
+        :item-key="wpKey"
+        handle=".drag-handle"
+        :animation="150"
+        ghost-class="opacity-40"
+        class="space-y-1"
+        @change="onReorder"
       >
-        <span class="text-[10px] text-gray-300 w-4 text-right shrink-0">{{ i + 1 }}</span>
-        <input
-          :value="w.name"
-          @change="trip.updateWaypoint(day.dayNumber, i, { name: $event.target.value })"
-          class="flex-1 min-w-0 px-2 py-1 rounded border border-gray-200 focus:border-accent focus:outline-none text-xs"
-        />
-        <button
-          class="text-gray-300 hover:text-accent disabled:opacity-30 px-0.5"
-          :disabled="i === 0"
-          title="上移"
-          @click="trip.moveWaypoint(day.dayNumber, i, -1)"
-        >↑</button>
-        <button
-          class="text-gray-300 hover:text-accent disabled:opacity-30 px-0.5"
-          :disabled="i === day.waypoints.length - 1"
-          title="下移"
-          @click="trip.moveWaypoint(day.dayNumber, i, 1)"
-        >↓</button>
-        <button
-          class="text-gray-300 hover:text-red-500 px-0.5"
-          title="删除节点"
-          @click="trip.removeWaypoint(day.dayNumber, i)"
-        >✕</button>
-      </div>
+        <template #item="{ element: w, index: i }">
+          <div class="flex items-center gap-1">
+            <span
+              class="drag-handle shrink-0 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 px-0.5"
+              title="按住拖动排序"
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round">
+                <path d="M2.5 5h11M2.5 8h11M2.5 11h11" />
+              </svg>
+            </span>
+            <span class="text-[10px] text-gray-300 w-3 text-right shrink-0">{{ i + 1 }}</span>
+            <input
+              :value="w.name"
+              @change="trip.updateWaypoint(day.dayNumber, i, { name: $event.target.value })"
+              class="flex-1 min-w-0 px-2 py-1 rounded border border-gray-200 focus:border-accent focus:outline-none text-xs"
+            />
+            <button
+              class="text-gray-300 hover:text-red-500 px-0.5 shrink-0"
+              title="删除节点"
+              @click="trip.removeWaypoint(day.dayNumber, i)"
+            >✕</button>
+          </div>
+        </template>
+      </draggable>
       <p v-if="!day.waypoints.length" class="text-xs text-gray-400">
         在「搜索」中添加 POI，或用「点图添加节点」加入途经点。
       </p>
