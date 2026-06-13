@@ -16,6 +16,20 @@ export function rateToPercent(rate) {
   return `${pct >= 0 ? '+' : ''}${pct}%`
 }
 
+// Edge 免费朗读接口不支持内联 SSML（带标签会返回空音频），合成前清洗为纯文本：
+// <break/> 近似成停顿逗号，其余标签去壳保留文字，折叠空白。
+export function plainText(text) {
+  if (!text) return ''
+  return String(text)
+    .replace(/<break[^>]*>/gi, '，')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function validateTtsBody(body) {
   const text = body?.text ?? body?.ssml
   if (!text || typeof text !== 'string') {

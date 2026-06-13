@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveVoice, rateToPercent, validateTtsBody } from './ttsParams'
+import { resolveVoice, rateToPercent, validateTtsBody, plainText } from './ttsParams'
 
 describe('resolveVoice', () => {
   it('已知 slug 映射到 edge-tts voice', () => {
@@ -36,5 +36,21 @@ describe('validateTtsBody', () => {
     } catch (e) {
       expect(e.status).toBe(400)
     }
+  })
+})
+
+describe('plainText', () => {
+  it('去掉 emphasis 等标签保留内部文字', () => {
+    expect(plainText('a<emphasis>b</emphasis>c')).toBe('abc')
+  })
+  it('<break/> 近似成停顿逗号', () => {
+    expect(plainText('前面<break time="500ms"/>后面')).toBe('前面，后面')
+  })
+  it('纯文本去首尾空白', () => {
+    expect(plainText('  你好世界  ')).toBe('你好世界')
+  })
+  it('空或仅标签返回空串', () => {
+    expect(plainText('<emphasis></emphasis>')).toBe('')
+    expect(plainText('')).toBe('')
   })
 })
