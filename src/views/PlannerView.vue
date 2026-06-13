@@ -5,7 +5,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useTripStore } from '../stores/trip'
 import { loadAmap } from '../composables/useAmap'
 import { planDrivingRoute } from '../composables/useDriving'
-import { wgs84ToGcj02, wgs84PathToGcj02 } from '../utils/coords'
+import { wgs84ToGcj02, wgs84PathToGcj02, gcj02ToWgs84 } from '../utils/coords'
 import PoiSearchPanel from '../components/PoiSearchPanel.vue'
 import DayCard from '../components/DayCard.vue'
 
@@ -26,6 +26,57 @@ const DAY_COLORS = [
 ]
 
 const tab = ref('route') // 'route' | 'search'
+const targetDay = ref(1)
+
+// 天数变化（删除天等）时保证 targetDay 始终有效
+watch(
+  () => trip.plan?.days.map((d) => d.dayNumber) ?? [],
+  (nums) => {
+    if (!nums.includes(targetDay.value)) targetDay.value = nums[0] ?? 1
+  },
+)
+
+const addNodeMode = ref(false)
+const importFileEl = ref(null)
+const importError = ref('')
+
+// POI 坐标来自高德搜索（GCJ-02），入库前转 WGS-84
+function addPoiToRoute(poi) {
+  if (!trip.plan) trip.newEmptyPlan()
+  const p = gcj02ToWgs84(poi.lng, poi.lat)
+  trip.addWaypoint(targetDay.value, { name: poi.name, lng: p.lng, lat: p.lat })
+}
+
+// 地图点击坐标是 GCJ-02，入库前转 WGS-84
+function onMapClick(e) {
+  if (!addNodeMode.value) return
+  if (!trip.plan) trip.newEmptyPlan()
+  const p = gcj02ToWgs84(e.lnglat.getLng(), e.lnglat.getLat())
+  trip.addWaypoint(targetDay.value, { name: '自定义节点', lng: p.lng, lat: p.lat })
+  addNodeMode.value = false
+}
+
+function exportJson() {
+  const blob = new Blob([trip.exportJson()], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${trip.plan?.name || 'wandertalk'}-路书.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function onImportFile(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  importError.value = ''
+  try {
+    trip.importJson(await file.text())
+  } catch (err) {
+    importError.value = err.message
+  }
+}
 
 onMounted(async () => {
   if (!settings.hasAmapKey) {
@@ -42,6 +93,7 @@ onMounted(async () => {
     })
     map.addControl(new AMap.Scale())
     map.addControl(new AMap.ToolBar({ position: 'RB' }))
+    map.on('click', onMapClick)
     if (trip.plan) drawPlan()
   } catch (e) {
     error.value = '地图加载失败：' + e.message
@@ -181,6 +233,18 @@ function flyTo(poi) {
         >搜索</button>
       </div>
 
+      <div v-if="trip.plan" class="flex items-center gap-2 text-xs text-gray-500">
+        目标天
+        <select
+          v-model.number="targetDay"
+          class="flex-1 px-2 py-1 rounded border border-gray-200 text-xs focus:outline-none focus:border-accent bg-white"
+        >
+          <option v-for="d in trip.plan.days" :key="d.dayNumber" :value="d.dayNumber">
+            Day {{ d.dayNumber }}{{ d.overnight ? ' · 宿' + d.overnight : '' }}
+          </option>
+        </select>
+      </div>
+
       <!-- 路线标签 -->
       <template v-if="tab === 'route'">
         <div class="flex items-center justify-between">
@@ -208,19 +272,44 @@ function flyTo(poi) {
             @click="trip.addDay()"
             class="w-full py-1.5 rounded-lg border border-dashed border-gray-300 text-sm text-gray-400 hover:border-accent hover:text-accent transition"
           >+ 添加一天</button>
+          <div class="flex gap-2 pt-1">
+            <button
+              @click="exportJson"
+              :disabled="!trip.plan"
+              class="flex-1 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:border-accent hover:text-accent transition disabled:opacity-40"
+            >导出 JSON</button>
+            <button
+              @click="importFileEl.click()"
+              class="flex-1 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:border-accent hover:text-accent transition"
+            >导入 JSON</button>
+            <input
+              ref="importFileEl"
+              type="file"
+              accept=".json,application/json"
+              class="hidden"
+              @change="onImportFile"
+            />
+          </div>
+          <p v-if="importError" class="text-xs text-red-500">{{ importError }}</p>
         </div>
         <p v-else class="text-sm text-gray-400">点击「加载 318 预设」开始。</p>
       </template>
 
       <!-- 搜索标签 -->
       <template v-else>
-        <PoiSearchPanel @select="flyTo" />
+        <PoiSearchPanel @select="flyTo" @add="addPoiToRoute" />
       </template>
     </aside>
 
     <!-- 地图 -->
     <div class="flex-1 relative">
       <div ref="mapEl" class="absolute inset-0"></div>
+      <button
+        v-if="!error"
+        @click="addNodeMode = !addNodeMode"
+        :class="['absolute top-3 left-3 z-10 px-3 py-1.5 rounded-lg text-xs shadow-sm transition',
+                 addNodeMode ? 'bg-accent text-white' : 'bg-white/90 text-gray-600 hover:text-accent']"
+      >{{ addNodeMode ? '点击地图添加到 Day ' + targetDay + '…（再点取消）' : '📍 点图添加节点' }}</button>
       <div
         v-if="error"
         class="absolute inset-0 flex flex-col items-center justify-center text-center gap-2 bg-gray-50"

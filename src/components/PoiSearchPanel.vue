@@ -54,7 +54,7 @@ async function search() {
   }
 }
 
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'add'])
 </script>
 
 <template>
@@ -98,8 +98,17 @@ const emit = defineEmits(['select'])
         class="rounded-lg border border-gray-100 p-2.5 hover:border-accent/40 cursor-pointer transition"
         @click="emit('select', r)"
       >
-        <div class="text-sm font-medium">{{ r.name }}</div>
-        <div class="text-xs text-gray-400 mt-0.5">{{ r.address || '无地址信息' }}</div>
+        <div class="flex items-center gap-2">
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium">{{ r.name }}</div>
+            <div class="text-xs text-gray-400 mt-0.5 truncate">{{ r.address || '无地址信息' }}</div>
+          </div>
+          <button
+            class="shrink-0 text-xs px-2 py-1 rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition"
+            title="添加到路线"
+            @click.stop="emit('add', r)"
+          >＋</button>
+        </div>
       </li>
     </ul>
   </div>
