@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { loadAmap } from '../composables/useAmap'
 import { useSettingsStore } from '../stores/settings'
+import { amapErrorMessage } from '../utils/amapError'
 
 const settings = useSettingsStore()
 const keyword = ref('')
@@ -40,11 +41,12 @@ async function search() {
       } else if (status === 'no_data') {
         error.value = '未找到结果'
       } else {
-        // 暴露高德返回的真实错误，便于排查（如 INVALID_USER_SCODE 表示安全密钥缺失/错误）
-        const info = typeof result === 'string' ? result : result?.info || '未知错误'
+        // 打出原始结果便于进一步定位（Event / 字符串错误码等）
+        console.error('[PlaceSearch] 搜索失败', { status, result })
+        const info = amapErrorMessage(status, result)
         error.value = `搜索失败：${info}`
         if (/scode/i.test(info)) {
-          error.value += '（请在「设置」中填写高德安全密钥 securityJsCode）'
+          error.value += '（请在「设置」中填写正确的高德安全密钥 securityJsCode）'
         }
       }
     })

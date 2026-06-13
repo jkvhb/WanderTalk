@@ -1,5 +1,6 @@
 import { wgs84ToGcj02, gcj02PathToWgs84 } from '../utils/coords'
 import { getCachedRoute, setCachedRoute } from '../utils/db'
+import { amapErrorMessage } from '../utils/amapError'
 
 // 缓存 key：WGS-84 坐标保留 5 位小数（约 1m 精度）
 export function routeCacheKey(from, to) {
@@ -13,8 +14,7 @@ function searchDriving(AMap, origin, destination) {
       if (status === 'complete' && result.routes?.length) {
         resolve(result.routes[0])
       } else {
-        const info = typeof result === 'string' ? result : result?.info || status
-        reject(new Error(info || '驾车路线查询失败'))
+        reject(new Error(amapErrorMessage(status, result)))
       }
     })
   })
