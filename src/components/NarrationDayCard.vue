@@ -58,7 +58,7 @@ async function aiDraft(i) {
       ],
       { apiKey: settings.llmKey },
     )
-    if (r?.narration) trip.setNarration(props.day.dayNumber, i, r.narration)
+    if (r?.narration) trip.setNarration(props.day.dayNumber, i, r.narration, { keepPrev: true })
   } catch (e) {
     error.value = e.message
   } finally {
@@ -85,6 +85,12 @@ async function aiDraft(i) {
       <div v-for="(w, i) in day.waypoints" :key="i" class="space-y-1">
         <div class="flex items-center gap-2">
           <span class="text-xs font-medium flex-1 truncate">{{ w.name }}</span>
+          <button
+            v-if="w.prevNarration"
+            class="text-[11px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 hover:bg-amber-200 transition"
+            title="切回上一稿（可来回切换对比）"
+            @click="trip.restorePrevNarration(day.dayNumber, i)"
+          >↩ 上一稿</button>
           <button
             class="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 hover:bg-gray-200 transition disabled:opacity-40"
             :disabled="busy === `${day.dayNumber}-${i}`"

@@ -3,105 +3,38 @@ import { ref, computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useTripStore } from '../stores/trip'
 import { useSettingsStore } from '../stores/settings'
-import { synthesize, VOICES } from '../composables/useTts'
-import { generateNarrationDraft } from '../composables/useNarration'
+import { useStudioStore } from '../stores/studio'
+import { VOICES } from '../composables/useTts'
 import NarrationDayCard from '../components/NarrationDayCard.vue'
 
 const trip = useTripStore()
 const settings = useSettingsStore()
+const studio = useStudioStore() // 任务进度挂在 store，切到别的视图再回来仍在继续、进度续显
 
 const DAY_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1']
 
-const status = ref('')
-const error = ref('')
-const working = ref(false)
+const uiError = ref('')
 
 const narratedCount = computed(() => {
   if (!trip.plan) return 0
   return trip.plan.days.reduce((n, d) => n + d.waypoints.filter((w) => w.narration).length, 0)
 })
+const blanksExist = computed(
+  () => !!trip.plan && trip.plan.days.some((d) => d.waypoints.some((w) => !w.narration)),
+)
 
-function allNarratedItems() {
-  const items = []
-  for (const day of trip.plan.days) {
-    day.waypoints.forEach((w, i) => {
-      if (w.narration) {
-        items.push({
-          dayNumber: day.dayNumber,
-          index: i,
-          name: w.name,
-          narration: w.narration,
-          overnight: day.overnight,
-          altitude: w.altitude,
-          prevName: day.waypoints[i - 1]?.name,
-          nextName: day.waypoints[i + 1]?.name,
-        })
-      }
-    })
-  }
-  return items
-}
-
-async function synthAll() {
-  if (!trip.plan || working.value) return
-  error.value = ''
-  working.value = true
-  const items = allNarratedItems()
-  let done = 0
-  try {
-    for (const it of items) {
-      status.value = `合成中 ${++done}/${items.length}：${it.name}`
-      await synthesize({ text: it.narration, voice: trip.plan.voice, rate: trip.plan.rate })
-    }
-    status.value = `完成：已合成 ${items.length} 段（命中缓存的已跳过）`
-  } catch (e) {
-    error.value = '批量合成失败：' + e.message + '（已成功的已缓存，可重试）'
-  } finally {
-    working.value = false
-  }
-}
-
-async function aiDraftAll() {
-  if (!trip.plan || working.value) return
+function aiAll() {
+  uiError.value = ''
   if (!settings.llmKey) {
-    error.value = '请先在「设置」填写 DeepSeek API Key'
+    uiError.value = '请先在「设置」填写 DeepSeek API Key'
     return
   }
-  error.value = ''
-  working.value = true
-  status.value = 'AI 生成全部草稿中…'
-  try {
-    const items = []
-    for (const day of trip.plan.days) {
-      day.waypoints.forEach((w, i) => {
-        if (!w.narration) {
-          items.push({
-            nodeName: w.name,
-            dayNumber: day.dayNumber,
-            overnight: day.overnight,
-            altitude: w.altitude,
-            prevName: day.waypoints[i - 1]?.name,
-            nextName: day.waypoints[i + 1]?.name,
-          })
-        }
-      })
-    }
-    if (!items.length) {
-      status.value = '所有节点都已有文案'
-      return
-    }
-    const results = await generateNarrationDraft(items, { apiKey: settings.llmKey })
-    for (const r of results) {
-      const day = trip.plan.days.find((d) => d.dayNumber === r.dayNumber)
-      const idx = day?.waypoints.findIndex((w) => w.name === r.nodeName && !w.narration)
-      if (day && idx >= 0) trip.setNarration(r.dayNumber, idx, r.narration)
-    }
-    status.value = `AI 生成完成：${results.length} 段`
-  } catch (e) {
-    error.value = 'AI 生成失败：' + e.message
-  } finally {
-    working.value = false
-  }
+  studio.runAiDraftAll(settings.llmKey, { regenerateAll: !blanksExist.value })
+}
+
+function synthAll() {
+  uiError.value = ''
+  studio.runSynthAll()
 }
 </script>
 
@@ -137,26 +70,46 @@ async function aiDraftAll() {
           <p class="text-[11px] text-gray-400">已写旁白 {{ narratedCount }} 段</p>
         </div>
 
-        <div class="space-y-2">
+        <!-- AI 生成 -->
+        <div class="space-y-1">
           <button
-            @click="aiDraftAll"
-            :disabled="working"
+            @click="aiAll"
+            :disabled="studio.aiJob.running"
             class="w-full py-1.5 rounded-lg bg-gray-100 text-gray-600 text-sm hover:bg-gray-200 transition disabled:opacity-50"
-          >AI 生成全部草稿</button>
-          <button
-            @click="trip.loadPresetNarration()"
-            :disabled="working"
-            class="w-full py-1.5 rounded-lg border border-gray-200 text-sm text-gray-500 hover:border-accent hover:text-accent transition disabled:opacity-50"
-          >加载 318 预设文案</button>
-          <button
-            @click="synthAll"
-            :disabled="working || narratedCount === 0"
-            class="w-full py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
-          >批量合成全部旁白</button>
+          >{{ blanksExist ? 'AI 生成全部草稿' : 'AI 重新生成全部' }}</button>
+          <p v-if="studio.aiJob.running" class="text-[11px] text-gray-500">
+            AI 生成中 {{ studio.aiJob.done }}/{{ studio.aiJob.total }}…
+          </p>
+          <p v-else-if="studio.aiJob.error" class="text-[11px] text-red-500">{{ studio.aiJob.error }}</p>
+          <p v-else-if="studio.aiJob.finishedAt" class="text-[11px] text-green-600">
+            ✓ 已生成完毕（{{ studio.aiJob.done }} 段）·再次点击重新生成（旧稿可一键切回）
+          </p>
         </div>
 
-        <p v-if="status" class="text-xs text-gray-500">{{ status }}</p>
-        <p v-if="error" class="text-xs text-red-500">{{ error }}</p>
+        <button
+          @click="trip.loadPresetNarration()"
+          class="w-full py-1.5 rounded-lg border border-gray-200 text-sm text-gray-500 hover:border-accent hover:text-accent transition"
+        >加载 318 预设文案</button>
+
+        <!-- 批量合成 -->
+        <div class="space-y-1">
+          <button
+            @click="synthAll"
+            :disabled="studio.synthJob.running || narratedCount === 0"
+            class="w-full py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
+          >批量合成全部旁白</button>
+          <p v-if="studio.synthJob.running" class="text-[11px] text-gray-500">
+            合成中 {{ studio.synthJob.done }}/{{ studio.synthJob.total }}…
+          </p>
+          <p v-else-if="studio.synthJob.error" class="text-[11px] text-red-500">
+            {{ studio.synthJob.error }}（已成功的已缓存，可重试）
+          </p>
+          <p v-else-if="studio.synthJob.finishedAt" class="text-[11px] text-green-600">
+            ✓ 已合成（{{ studio.synthJob.total }} 段，命中缓存已跳过）
+          </p>
+        </div>
+
+        <p v-if="uiError" class="text-xs text-red-500">{{ uiError }}</p>
 
         <div class="space-y-2">
           <NarrationDayCard
