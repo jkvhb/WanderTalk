@@ -1,7 +1,7 @@
 import { openDB } from 'idb'
 
 const DB_NAME = 'wandertalk'
-const DB_VERSION = 1
+const DB_VERSION = 2
 let dbPromise = null
 
 function getDb() {
@@ -10,6 +10,7 @@ function getDb() {
       upgrade(db) {
         if (!db.objectStoreNames.contains('trip')) db.createObjectStore('trip')
         if (!db.objectStoreNames.contains('routeCache')) db.createObjectStore('routeCache')
+        if (!db.objectStoreNames.contains('audioCache')) db.createObjectStore('audioCache')
       },
     })
   }
@@ -34,4 +35,12 @@ export async function getCachedRoute(key) {
 
 export async function setCachedRoute(key, route) {
   return (await getDb()).put('routeCache', route, key)
+}
+
+export async function getCachedAudio(key) {
+  return (await getDb()).get('audioCache', key)
+}
+
+export async function setCachedAudio(key, entry) {
+  return (await getDb()).put('audioCache', entry, key)
 }

@@ -1,6 +1,14 @@
 import 'fake-indexeddb/auto'
 import { describe, it, expect } from 'vitest'
-import { saveTrip, loadTrip, clearTrip, getCachedRoute, setCachedRoute } from './db'
+import {
+  saveTrip,
+  loadTrip,
+  clearTrip,
+  getCachedRoute,
+  setCachedRoute,
+  getCachedAudio,
+  setCachedAudio,
+} from './db'
 
 describe('db', () => {
   it('saveTrip / loadTrip round trip', async () => {
@@ -24,5 +32,16 @@ describe('db', () => {
     const r = await getCachedRoute('a>b')
     expect(r.distance).toBe(10)
     expect(r.path).toEqual([[1, 2]])
+  })
+})
+
+describe('db audioCache', () => {
+  it('setCachedAudio / getCachedAudio round trip', async () => {
+    expect(await getCachedAudio('k1')).toBeUndefined()
+    const blob = new Blob(['x'], { type: 'audio/mpeg' })
+    await setCachedAudio('k1', { blob, duration: 2.5, mime: 'audio/mpeg' })
+    const got = await getCachedAudio('k1')
+    expect(got.duration).toBe(2.5)
+    expect(got.mime).toBe('audio/mpeg')
   })
 })
