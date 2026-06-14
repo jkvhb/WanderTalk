@@ -3,12 +3,25 @@ import { ref } from 'vue'
 import { loadAmap } from '../composables/useAmap'
 import { useSettingsStore } from '../stores/settings'
 import { amapErrorMessage } from '../utils/amapError'
+import { useSearchHistory } from '../composables/useSearchHistory'
 
 const settings = useSettingsStore()
 const keyword = ref('')
 const results = ref([])
 const loading = ref(false)
 const error = ref('')
+const showHistory = ref(false)
+const { history, add: addHistory, remove: removeHistory } = useSearchHistory()
+
+function hideHistorySoon() {
+  // 延迟关闭，让下拉项的点击先生效
+  setTimeout(() => (showHistory.value = false), 150)
+}
+function pickHistory(h) {
+  keyword.value = h
+  showHistory.value = false
+  search()
+}
 
 const categories = [
   { key: '', label: '全部' },
@@ -21,6 +34,8 @@ const activeCat = ref('')
 
 async function search() {
   if (!keyword.value.trim()) return
+  addHistory(keyword.value)
+  showHistory.value = false
   loading.value = true
   error.value = ''
   results.value = []
@@ -62,15 +77,40 @@ const emit = defineEmits(['select', 'add'])
 <template>
   <div class="space-y-3">
     <div class="flex gap-2">
-      <input
-        v-model="keyword"
-        @keyup.enter="search"
-        placeholder="搜索地点、餐厅、酒店…"
-        class="flex-1 px-3 py-2 rounded-lg border border-gray-200 focus:border-accent focus:outline-none text-sm"
-      />
+      <div class="relative flex-1">
+        <input
+          v-model="keyword"
+          @keyup.enter="search"
+          @focus="showHistory = true"
+          @blur="hideHistorySoon"
+          placeholder="搜索地点、餐厅、酒店…"
+          class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-accent focus:outline-none text-sm"
+        />
+        <ul
+          v-if="showHistory && history.length"
+          class="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-100 rounded-lg shadow-lg overflow-hidden"
+        >
+          <li class="flex items-center justify-between px-3 py-1 text-[11px] text-gray-400 border-b border-gray-50">
+            <span>历史搜索</span>
+          </li>
+          <li
+            v-for="h in history"
+            :key="h"
+            class="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer"
+            @mousedown.prevent="pickHistory(h)"
+          >
+            <span class="flex-1 truncate text-gray-600">🕘 {{ h }}</span>
+            <button
+              class="shrink-0 text-gray-300 hover:text-red-500 text-xs"
+              title="删除该记录"
+              @mousedown.prevent.stop="removeHistory(h)"
+            >✕</button>
+          </li>
+        </ul>
+      </div>
       <button
         @click="search"
-        class="px-3 py-2 rounded-lg bg-accent text-white text-sm hover:opacity-90 transition"
+        class="shrink-0 px-3 py-2 rounded-lg bg-accent text-white text-sm hover:opacity-90 transition"
       >
         搜索
       </button>
