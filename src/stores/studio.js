@@ -13,6 +13,30 @@ export const useStudioStore = defineStore('studio', () => {
   const synthJob = ref(emptyJob())
   const aiJob = ref(emptyJob())
 
+  // —— 试听播放器（全局单例：播新的自动停旧的，可手动暂停）——
+  const playingKey = ref('')
+  let audioEl = null
+  function stopAudio() {
+    if (audioEl) {
+      try {
+        audioEl.pause()
+      } catch {
+        /* 忽略 */
+      }
+      audioEl = null
+    }
+    playingKey.value = ''
+  }
+  async function play(key, blob) {
+    stopAudio()
+    audioEl = new Audio(URL.createObjectURL(blob))
+    audioEl.addEventListener('ended', () => {
+      if (playingKey.value === key) stopAudio()
+    })
+    playingKey.value = key
+    await audioEl.play()
+  }
+
   function narratedNodes(plan) {
     const out = []
     for (const day of plan.days) {
@@ -101,5 +125,5 @@ export const useStudioStore = defineStore('studio', () => {
     }
   }
 
-  return { synthJob, aiJob, runSynthAll, runAiDraftAll }
+  return { synthJob, aiJob, runSynthAll, runAiDraftAll, playingKey, play, stopAudio }
 })

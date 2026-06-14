@@ -4,6 +4,7 @@ import { useTripStore } from '../stores/trip'
 import { synthesize } from '../composables/useTts'
 import { generateNarrationDraft } from '../composables/useNarration'
 import { useSettingsStore } from '../stores/settings'
+import { useStudioStore } from '../stores/studio'
 
 const props = defineProps({
   day: { type: Object, required: true },
@@ -12,21 +13,30 @@ const props = defineProps({
 
 const trip = useTripStore()
 const settings = useSettingsStore()
+const studio = useStudioStore()
 const expanded = ref(true)
 const busy = ref('') // 当前操作中的「dayNumber-index」标记
 const error = ref('')
-let audioEl = null
+
+function nodeKey(i) {
+  return `${props.day.dayNumber}-${i}`
+}
+function isPlaying(i) {
+  return studio.playingKey === nodeKey(i)
+}
 
 async function preview(i) {
+  if (isPlaying(i)) {
+    studio.stopAudio() // 正在播这一段 → 暂停
+    return
+  }
   const wp = props.day.waypoints[i]
   if (!wp.narration) return
   error.value = ''
-  busy.value = `${props.day.dayNumber}-${i}`
+  busy.value = nodeKey(i)
   try {
     const { blob } = await synthesize({ text: wp.narration, voice: trip.plan.voice, rate: trip.plan.rate })
-    if (audioEl) audioEl.pause()
-    audioEl = new Audio(URL.createObjectURL(blob))
-    await audioEl.play()
+    await studio.play(nodeKey(i), blob) // 共享播放器：自动停掉上一段
   } catch (e) {
     error.value = e.message
   } finally {
@@ -99,10 +109,10 @@ async function aiDraft(i) {
           >AI</button>
           <button
             class="text-[11px] px-1.5 py-0.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition disabled:opacity-40"
-            :disabled="!w.narration || busy === `${day.dayNumber}-${i}`"
-            title="试听本段"
+            :disabled="busy === `${day.dayNumber}-${i}` || (!w.narration && !isPlaying(i))"
+            :title="isPlaying(i) ? '暂停' : '试听本段'"
             @click="preview(i)"
-          >▶ 试听</button>
+          >{{ isPlaying(i) ? '⏸ 暂停' : busy === `${day.dayNumber}-${i}` ? '合成中…' : '▶ 试听' }}</button>
         </div>
         <textarea
           :value="w.narration"
