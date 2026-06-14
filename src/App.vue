@@ -35,7 +35,12 @@ onMounted(async () => {
   <div class="flex flex-col h-full">
     <NavBar />
     <main class="flex-1 min-h-0 overflow-auto">
-      <RouterView />
+      <!-- 保活三视图：地图只创建一次（避免反复重建耗尽 WebGL 上下文），搜索/编辑状态切换不丢 -->
+      <RouterView v-slot="{ Component }">
+        <keep-alive>
+          <component :is="Component" />
+        </keep-alive>
+      </RouterView>
     </main>
   </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onActivated, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
 import { useTripStore } from '../stores/trip'
@@ -143,6 +143,11 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearOverlays()
   if (map) { map.destroy(); map = null }
+})
+
+// keep-alive 保活下，切回本视图时容器曾被移出文档，刷新地图尺寸避免空白/错位
+onActivated(() => {
+  if (map) map.resize()
 })
 
 // 路线数据（含节点编辑、segments 计算结果）变化时重绘
