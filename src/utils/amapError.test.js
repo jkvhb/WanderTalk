@@ -26,4 +26,10 @@ describe('amapErrorMessage', () => {
     expect(amapErrorMessage('error', {})).not.toMatch(/\[object/)
     expect(amapErrorMessage('error', null)).toMatch(/安全密钥|网络/)
   })
+
+  it('result.info 为 "[object Event]" 这类无意义串时回退到网络提示', () => {
+    const msg = amapErrorMessage('error', { info: '[object Event]' })
+    expect(msg).not.toMatch(/\[object/)
+    expect(msg).toMatch(/网络|VPN|高德/)
+  })
 })
