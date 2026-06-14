@@ -17,6 +17,7 @@ const mapEl = ref(null)
 const error = ref('')
 const calcError = ref('')
 const calculating = ref(false)
+const mapReady = ref(false)
 let map = null
 let AMapRef = null
 let overlays = [] // 当前绘制在地图上的 marker / polyline，便于清除
@@ -134,6 +135,14 @@ onMounted(async () => {
     map.addControl(new AMap.Scale())
     map.addControl(new AMap.ToolBar({ position: 'RB' }))
     map.on('click', onMapClick)
+    map.on('complete', () => { mapReady.value = true })
+    // 底图迟迟不出 → 多为高德密钥/安全码/配额/域名白名单问题；给出可见提示而非白屏
+    setTimeout(() => {
+      if (!mapReady.value && !error.value) {
+        error.value =
+          '底图加载失败或超时——多为高德配额用尽 / 安全密钥 / 域名白名单 / 网络问题。请切到「搜索」搜个地点看红字原因，或按 F12 看 Console。'
+      }
+    }, 10000)
     if (trip.plan) drawPlan()
   } catch (e) {
     error.value = '地图加载失败：' + e.message
