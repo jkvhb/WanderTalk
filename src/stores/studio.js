@@ -56,6 +56,7 @@ export const useStudioStore = defineStore('studio', () => {
             dayNumber: day.dayNumber,
             index: i,
             nodeName: w.name,
+            address: w.address,
             overnight: day.overnight,
             altitude: w.altitude,
             prevName: day.waypoints[i - 1]?.name,
@@ -94,23 +95,18 @@ export const useStudioStore = defineStore('studio', () => {
     aiJob.value = { running: true, done: 0, total: nodes.length, error: '', finishedAt: null }
     try {
       if (nodes.length) {
-        const results = await generateNarrationDraft(
-          nodes.map((n) => ({
-            nodeName: n.nodeName,
-            dayNumber: n.dayNumber,
-            overnight: n.overnight,
-            altitude: n.altitude,
-            prevName: n.prevName,
-            nextName: n.nextName,
-          })),
-          { apiKey },
-        )
+        // nodes 已含 dayNumber/index/nodeName/address/altitude/overnight，整程一次性发后端
+        const results = await generateNarrationDraft(nodes, { apiKey })
         for (const r of results) {
           const day = trip.plan.days.find((d) => d.dayNumber === r.dayNumber)
           if (!day) continue
-          // 优先匹配同名且（补空白模式下）尚无旁白的节点
-          let idx = day.waypoints.findIndex((w) => w.name === r.nodeName && (regenerateAll || !w.narration))
-          if (idx < 0) idx = day.waypoints.findIndex((w) => w.name === r.nodeName)
+          // 优先用回填的 index 精确定位，退化到按名称匹配
+          let idx =
+            typeof r.index === 'number' && r.index >= 0 && r.index < day.waypoints.length ? r.index : -1
+          if (idx < 0) {
+            idx = day.waypoints.findIndex((w) => w.name === r.nodeName && (regenerateAll || !w.narration))
+            if (idx < 0) idx = day.waypoints.findIndex((w) => w.name === r.nodeName)
+          }
           if (idx >= 0 && r.narration) {
             trip.setNarration(r.dayNumber, idx, r.narration, { keepPrev: true })
             aiJob.value.done++

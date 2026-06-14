@@ -8,7 +8,12 @@ vi.mock('../composables/useTts', () => ({
 }))
 vi.mock('../composables/useNarration', () => ({
   generateNarrationDraft: vi.fn(async (items) =>
-    items.map((i) => ({ nodeName: i.nodeName, dayNumber: i.dayNumber, narration: '稿:' + i.nodeName })),
+    items.map((i) => ({
+      nodeName: i.nodeName,
+      dayNumber: i.dayNumber,
+      index: i.index,
+      narration: '稿:' + i.nodeName,
+    })),
   ),
 }))
 

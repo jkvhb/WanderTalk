@@ -60,6 +60,8 @@ async function aiDraft(i) {
         {
           nodeName: wp.name,
           dayNumber: props.day.dayNumber,
+          index: i,
+          address: wp.address,
           overnight: props.day.overnight,
           altitude: wp.altitude,
           prevName: prev,
