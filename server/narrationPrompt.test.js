@@ -1,18 +1,21 @@
 import { describe, it, expect } from 'vitest'
-import { buildNarrationMessages } from './narrationPrompt'
+import { buildPlanNarrationMessages } from './narrationPrompt'
 
-describe('buildNarrationMessages', () => {
-  it('返回 system + user 两条，user 含节点名与天数', () => {
-    const msgs = buildNarrationMessages({ nodeName: '折多山垭口', dayNumber: 2, altitude: 4298 })
-    expect(msgs).toHaveLength(2)
-    expect(msgs[0].role).toBe('system')
-    expect(msgs[1].role).toBe('user')
-    expect(msgs[1].content).toContain('折多山垭口')
-    expect(msgs[1].content).toContain('第 2 天')
+describe('buildPlanNarrationMessages', () => {
+  it('system 要求 JSON、第X天、勿重复、以实际位置为准', () => {
+    const [system] = buildPlanNarrationMessages([{ dayNumber: 1, index: 0, nodeName: '康定' }])
+    expect(system.content).toMatch(/JSON/)
+    expect(system.content).toContain('第X天')
+    expect(system.content).toMatch(/重复/)
+    expect(system.content).toMatch(/实际位置/)
   })
-  it('system 提示要求中文、不编造', () => {
-    const [system] = buildNarrationMessages({ nodeName: '康定', dayNumber: 1 })
-    expect(system.content).toMatch(/中文/)
-    expect(system.content).toMatch(/不要编造|不得编造/)
+  it('user 列出节点并带真实地址纠偏与 index', () => {
+    const [, user] = buildPlanNarrationMessages([
+      { dayNumber: 1, index: 1, nodeName: '石棉今知烧烤', address: '雅安市雨城区' },
+    ])
+    expect(user.content).toContain('石棉今知烧烤')
+    expect(user.content).toContain('雅安市')
+    expect(user.content).toContain('第1天')
+    expect(user.content).toContain('index=1')
   })
 })

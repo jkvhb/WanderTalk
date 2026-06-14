@@ -185,6 +185,7 @@ describe('trip store 编辑', () => {
     expect(t.plan.voice).toBe('xiaoxiao')
     expect(t.plan.rate).toBe(1)
     expect(t.plan.days[0].waypoints[0].narration).toBe('')
+    expect(t.plan.days[0].waypoints[0].address).toBe('')
   })
 
   it('setNarration 设置节点旁白（去空格）', () => {

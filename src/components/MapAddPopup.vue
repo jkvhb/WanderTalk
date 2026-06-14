@@ -65,6 +65,7 @@ function confirm() {
       name: props.candidate.name,
       lng: props.candidate.lng,
       lat: props.candidate.lat,
+      address: props.candidate.address || '',
     },
   })
 }

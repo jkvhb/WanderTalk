@@ -49,7 +49,7 @@ const importError = ref('')
 function addPoiToRoute(poi) {
   if (!trip.plan) trip.newEmptyPlan()
   const p = gcj02ToWgs84(poi.lng, poi.lat)
-  trip.addWaypoint(targetDay.value, { name: poi.name, lng: p.lng, lat: p.lat })
+  trip.addWaypoint(targetDay.value, { name: poi.name, lng: p.lng, lat: p.lat, address: poi.address || '' })
 }
 
 // 浮窗定位：把像素夹到地图容器内，避免溢出

@@ -12,6 +12,7 @@ function normalizeDay(day, i) {
       ...w,
       narration: w.narration ?? '',
       prevNarration: w.prevNarration ?? '',
+      address: w.address ?? '',
     })),
     segments: day.segments ?? null,
   }
