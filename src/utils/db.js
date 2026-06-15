@@ -1,7 +1,7 @@
 import { openDB } from 'idb'
 
 const DB_NAME = 'wandertalk'
-const DB_VERSION = 2
+const DB_VERSION = 3
 let dbPromise = null
 
 function getDb() {
@@ -11,6 +11,7 @@ function getDb() {
         if (!db.objectStoreNames.contains('trip')) db.createObjectStore('trip')
         if (!db.objectStoreNames.contains('routeCache')) db.createObjectStore('routeCache')
         if (!db.objectStoreNames.contains('audioCache')) db.createObjectStore('audioCache')
+        if (!db.objectStoreNames.contains('images')) db.createObjectStore('images')
       },
     })
   }
@@ -43,4 +44,17 @@ export async function getCachedAudio(key) {
 
 export async function setCachedAudio(key, entry) {
   return (await getDb()).put('audioCache', entry, key)
+}
+
+// —— 节点图片（按 id 存 Blob，节点只存 id 数组）——
+export async function getImage(id) {
+  return (await getDb()).get('images', id)
+}
+
+export async function putImage(id, entry) {
+  return (await getDb()).put('images', entry, id)
+}
+
+export async function deleteImage(id) {
+  return (await getDb()).delete('images', id)
 }

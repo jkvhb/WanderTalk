@@ -8,6 +8,9 @@ import {
   setCachedRoute,
   getCachedAudio,
   setCachedAudio,
+  putImage,
+  getImage,
+  deleteImage,
 } from './db'
 
 describe('db', () => {
@@ -43,5 +46,23 @@ describe('db audioCache', () => {
     const got = await getCachedAudio('k1')
     expect(got.duration).toBe(2.5)
     expect(got.mime).toBe('audio/mpeg')
+  })
+})
+
+describe('db images', () => {
+  it('putImage / getImage 往返', async () => {
+    expect(await getImage('img_x')).toBeUndefined()
+    const blob = new Blob(['x'], { type: 'image/jpeg' })
+    await putImage('img_x', { blob, mime: 'image/jpeg', w: 100, h: 80 })
+    const got = await getImage('img_x')
+    expect(got.w).toBe(100)
+    expect(got.h).toBe(80)
+    expect(got.mime).toBe('image/jpeg')
+  })
+
+  it('deleteImage 后读取为空', async () => {
+    await putImage('img_y', { blob: new Blob(['y']), mime: 'image/jpeg', w: 1, h: 1 })
+    await deleteImage('img_y')
+    expect(await getImage('img_y')).toBeUndefined()
   })
 })
