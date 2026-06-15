@@ -6,6 +6,7 @@ const KEYS = {
   amapSecurityCode: '318:amapSecurityCode',
   llmKey: '318:llmKey',
   voice: '318:voice',
+  tiandituKey: '318:tiandituKey',
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -13,8 +14,10 @@ export const useSettingsStore = defineStore('settings', () => {
   const amapSecurityCode = ref(localStorage.getItem(KEYS.amapSecurityCode) || '')
   const llmKey = ref(localStorage.getItem(KEYS.llmKey) || '')
   const voice = ref(localStorage.getItem(KEYS.voice) || 'xiaoxiao')
+  const tiandituKey = ref(localStorage.getItem(KEYS.tiandituKey) || '')
 
   const hasAmapKey = computed(() => amapKey.value.trim().length > 0)
+  const hasTiandituKey = computed(() => tiandituKey.value.trim().length > 0)
 
   function setAmapKey(v) {
     amapKey.value = v.trim()
@@ -36,15 +39,23 @@ export const useSettingsStore = defineStore('settings', () => {
     localStorage.setItem(KEYS.voice, v)
   }
 
+  function setTiandituKey(v) {
+    tiandituKey.value = v.trim()
+    localStorage.setItem(KEYS.tiandituKey, tiandituKey.value)
+  }
+
   return {
     amapKey,
     amapSecurityCode,
     llmKey,
     voice,
+    tiandituKey,
     hasAmapKey,
+    hasTiandituKey,
     setAmapKey,
     setAmapSecurityCode,
     setLlmKey,
     setVoice,
+    setTiandituKey,
   }
 })

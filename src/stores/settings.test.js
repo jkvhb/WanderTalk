@@ -31,4 +31,14 @@ describe('settings store', () => {
     s.setAmapKey('abc')
     expect(s.hasAmapKey).toBe(true)
   })
+
+  it('天地图 key：默认空、可写回 localStorage、hasTiandituKey 反映状态', () => {
+    const s = useSettingsStore()
+    expect(s.tiandituKey).toBe('')
+    expect(s.hasTiandituKey).toBe(false)
+    s.setTiandituKey('  tdt-123  ')
+    expect(s.tiandituKey).toBe('tdt-123')
+    expect(s.hasTiandituKey).toBe(true)
+    expect(localStorage.getItem('318:tiandituKey')).toBe('tdt-123')
+  })
 })
