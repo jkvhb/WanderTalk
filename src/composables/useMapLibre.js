@@ -10,6 +10,11 @@ function tdtTiles(layer, tk) {
 }
 
 // 建一张只读（不可手势交互）的天地图，供逐帧 jumpTo 驱动。
+//
+// 关键：容器常在异步组件挂载 + flex/keep-alive 切换的那一拍里尺寸尚未结算，
+// 若此时就 new Map，pitch:60 的画布会被锁死在 0/小尺寸而全黑，后续 resize() 难以救回。
+// 因此改为「等容器 getBoundingClientRect 报出非零尺寸再建图」（读矩形会强制同步布局，
+// 报出非零时布局必已结算），建图前把相机/路线暂存，建图后补放。
 export function createFlightMap({ container, tk, center = [102, 30], onError }) {
   const imgTiles = tdtTiles('img', tk)
   const ciaTiles = tdtTiles('cia', tk)
@@ -30,60 +35,121 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     ],
   }
 
-  const map = new maplibregl.Map({
-    container,
-    style,
-    center,
-    zoom: 8,
-    pitch: 60,
-    attributionControl: false,
-    interactive: false, // 相机完全由动画驱动
-  })
+  let map = null
+  let ro = null
+  let destroyed = false
+  let pendingCamera = null
+  let pendingRoute = null
 
-  // 加载完成后强制 resize 一次（应对异步挂载时容器尺寸尚未结算）
-  map.on('load', () => map.resize())
+  // 容器是否已拿到真实（非零）尺寸——读矩形会强制同步布局
+  function hasSize() {
+    const r = container?.getBoundingClientRect?.()
+    return !!r && r.width > 0 && r.height > 0
+  }
 
-  // 瓦片/样式出错：打到 console 便于排查，并上抛可读信息
-  map.on('error', (e) => {
-    console.error('[FlightMap error]', e?.error || e)
-    if (onError) onError(e?.error?.message || '天地图瓦片加载失败（检查网络/VPN/key）')
-  })
+  function build() {
+    if (map || destroyed) return
+    map = new maplibregl.Map({
+      container,
+      style,
+      center,
+      zoom: 8,
+      pitch: 60,
+      attributionControl: false,
+      interactive: false, // 相机完全由动画驱动
+    })
 
-  function setCamera({ lng, lat, zoom, pitch, bearing }) {
+    map.on('error', (e) => {
+      console.error('[FlightMap error]', e?.error || e)
+      onError?.(e?.error?.message || String(e?.error || '未知错误'))
+    })
+    map.on('load', () => {
+      map.resize() // 建图后再兜一次尺寸
+      if (pendingCamera) applyCamera(pendingCamera)
+      if (pendingRoute) applyRoute(pendingRoute)
+    })
+  }
+
+  // 尺寸已就绪则立即建图；否则用 ResizeObserver 等尺寸出现，并在之后任何尺寸变更时 resize。
+  if (hasSize()) build()
+  if (typeof ResizeObserver !== 'undefined') {
+    ro = new ResizeObserver(() => {
+      if (!map) {
+        if (hasSize()) build()
+      } else {
+        map.resize()
+      }
+    })
+    ro.observe(container)
+  } else if (!map && typeof requestAnimationFrame !== 'undefined') {
+    // 无 ResizeObserver 的兜底：逐帧轮询直到有尺寸
+    const poll = () => {
+      if (destroyed || map) return
+      if (hasSize()) build()
+      else requestAnimationFrame(poll)
+    }
+    requestAnimationFrame(poll)
+  }
+
+  function applyCamera({ lng, lat, zoom, pitch, bearing }) {
     map.jumpTo({ center: [lng, lat], zoom, pitch, bearing: bearing ?? 0 })
+  }
+  function setCamera(cam) {
+    if (!map) {
+      pendingCamera = cam // 建图前只保留最新相机，建图后补放
+      return
+    }
+    applyCamera(cam)
   }
 
   // paths: [[ [lng,lat]... ], ...] 多段路线折线
-  function drawRoute(paths) {
+  function applyRoute(paths) {
     const features = (paths || [])
       .filter((p) => p && p.length > 1)
       .map((p) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: p }, properties: {} }))
     const data = { type: 'FeatureCollection', features }
-    const add = () => {
-      if (map.getSource('route')) {
-        map.getSource('route').setData(data)
-        return
-      }
-      map.addSource('route', { type: 'geojson', data })
-      map.addLayer({
-        id: 'route-line',
-        type: 'line',
-        source: 'route',
-        paint: { 'line-color': '#ff5a36', 'line-width': 3, 'line-opacity': 0.9 },
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-      })
+    if (map.getSource('route')) {
+      map.getSource('route').setData(data)
+      return
     }
-    if (map.isStyleLoaded()) add()
-    else map.once('load', add)
+    map.addSource('route', { type: 'geojson', data })
+    map.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route',
+      paint: { 'line-color': '#ff5a36', 'line-width': 3, 'line-opacity': 0.9 },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    })
+  }
+  function drawRoute(paths) {
+    if (!map) {
+      pendingRoute = paths // 建图前暂存，建图 load 后补画
+      return
+    }
+    if (map.isStyleLoaded()) applyRoute(paths)
+    else map.once('load', () => applyRoute(paths))
   }
 
   function destroy() {
+    destroyed = true
     try {
-      map.remove()
+      ro?.disconnect()
+    } catch {
+      /* 忽略 */
+    }
+    try {
+      map?.remove()
     } catch {
       /* 忽略 */
     }
   }
 
-  return { map, setCamera, drawRoute, destroy }
+  return {
+    get map() {
+      return map
+    },
+    setCamera,
+    drawRoute,
+    destroy,
+  }
 }

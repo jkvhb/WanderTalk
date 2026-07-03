@@ -132,10 +132,11 @@ function toggle() {
       <button class="px-2 py-0.5 rounded hover:bg-white/10" @click="emit('close')">✕ 关闭</button>
     </div>
 
-    <!-- 16:9 舞台 -->
-    <div class="flex-1 flex items-center justify-center overflow-hidden">
-      <div class="relative w-full" style="aspect-ratio:16/9; max-height:100%">
-        <div ref="mapEl" class="absolute inset-0"></div>
+    <!-- 预览舞台：铺满预览区，给 MapLibre 一个确定尺寸的定位容器（精确 16:9 画幅留待导出阶段）-->
+    <div class="flex-1 relative overflow-hidden">
+        <!-- 注意：不能用 absolute inset-0——maplibre-gl.css 的 .maplibregl-map{position:relative}
+             会盖掉 Tailwind 的 absolute，令 inset-0 失效、容器塌成 0 高。用 w-full h-full 铺满父级。-->
+        <div ref="mapEl" class="w-full h-full"></div>
 
         <!-- 瓦片错误提示 -->
         <p v-if="mapError" class="absolute top-2 left-2 right-2 text-xs text-red-200 bg-red-900/60 rounded px-2 py-1">
@@ -225,7 +226,6 @@ function toggle() {
             <option class="text-black" :value="2">2x</option>
           </select>
         </div>
-      </div>
     </div>
   </div>
 </template>
