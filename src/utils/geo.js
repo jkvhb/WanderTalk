@@ -21,6 +21,25 @@ export function pathLength(path) {
   return sum
 }
 
+// Chaikin 切角平滑：每条边取 1/4、3/4 两点替代原顶点，保留首尾端点。
+// 相机中心走它而非原始驾车折线，消除发卡弯逐顶点抖动。经纬度小范围内线性插值足够。
+export function chaikinSmooth(path, iterations = 2) {
+  if (!path || path.length < 3) return path ? [...path] : []
+  let pts = path
+  for (let k = 0; k < iterations; k++) {
+    const out = [pts[0]]
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, ay] = pts[i]
+      const [bx, by] = pts[i + 1]
+      out.push([ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25])
+      out.push([ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75])
+    }
+    out.push(pts[pts.length - 1])
+    pts = out
+  }
+  return pts
+}
+
 // 按弧长比例 frac∈[0,1] 在折线上线性插值取点，返回 [lng,lat]
 export function pointAlongPath(path, frac) {
   if (!path || path.length === 0) return null

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { haversine, pathLength, pointAlongPath } from './geo'
+import { haversine, pathLength, pointAlongPath, chaikinSmooth } from './geo'
 
 describe('haversine', () => {
   it('1 度纬度约 111km', () => {
@@ -38,5 +38,30 @@ describe('pointAlongPath', () => {
   })
   it('单点折线返回该点', () => {
     expect(pointAlongPath([[3, 4]], 0.7)).toEqual([3, 4])
+  })
+})
+
+describe('chaikinSmooth', () => {
+  it('首尾端点不变', () => {
+    const out = chaikinSmooth([[0, 0], [1, 0], [1, 1]], 2)
+    expect(out[0]).toEqual([0, 0])
+    expect(out.at(-1)).toEqual([1, 1])
+  })
+  it('顶点数按迭代增长：3 点 1 次迭代 → 6 点', () => {
+    expect(chaikinSmooth([[0, 0], [1, 0], [1, 1]], 1)).toHaveLength(6)
+  })
+  it('切掉尖角：原拐点 [1,0] 不再出现', () => {
+    const out = chaikinSmooth([[0, 0], [1, 0], [1, 1]], 1)
+    expect(out.some(([x, y]) => x === 1 && y === 0)).toBe(false)
+  })
+  it('共线输入输出仍共线（lat 全 0）', () => {
+    const out = chaikinSmooth([[0, 0], [0.5, 0], [1, 0]], 2)
+    out.forEach(([, lat]) => expect(lat).toBe(0))
+  })
+  it('少于 3 点原样返回副本', () => {
+    const p = [[0, 0], [1, 0]]
+    const out = chaikinSmooth(p, 2)
+    expect(out).toEqual(p)
+    expect(out).not.toBe(p)
   })
 })
