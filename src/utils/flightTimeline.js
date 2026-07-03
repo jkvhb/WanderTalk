@@ -116,7 +116,9 @@ export function sampleAt(timeline, t) {
     // 两端归零窗：起飞时从特写相机缓出（拉远、转向行进方向、撤掉偏右），降落前缓回
     const w = edgeWindow(p, o.edge)
     const zoom = o.dwellZoom + (o.flyZoom - o.dwellZoom) * w
+    // 注意：起止角 0 必须与 closeupCamera 的 bearing 一致，两端无缝衔接依赖这一点
     const bearing = lerpAngle(0, bearingAt(line, eased), w)
+    // padding 与 zoom 相反：飞行中段撤掉偏右（1-w），两端恢复特写构图
     const padding = { leftFrac: o.padLeftFrac * (1 - w) }
     const prevAlt = timeline.stops[i - 1]?.node.altitude
     const altitude =

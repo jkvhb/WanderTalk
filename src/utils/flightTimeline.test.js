@@ -24,8 +24,9 @@ function twoStops() {
 }
 
 describe('flyDurationForKm', () => {
-  it('clamp(d/50, 2, 6)：100km=2s、200km=4s、600km 封顶 6s、30km 下限 2s', () => {
+  it('clamp(d/50, 2, 6)：100km=2s、150km=3s、200km=4s、600km 封顶 6s、30km 下限 2s', () => {
     expect(flyDurationForKm(100)).toBe(2)
+    expect(flyDurationForKm(150)).toBe(3)
     expect(flyDurationForKm(200)).toBe(4)
     expect(flyDurationForKm(600)).toBe(6)
     expect(flyDurationForKm(30)).toBe(2)
@@ -138,7 +139,7 @@ describe('sampleAt', () => {
   })
 
   it('fly 两端与相邻 dwell 相机连续（zoom/bearing/padding 无跳变）', () => {
-    const dwellA = sampleAt(tl, 5.9).camera // dwell A 末尾
+    const dwellA = sampleAt(tl, flyStart - 0.1).camera // dwell A 末尾
     const flyBegin = sampleAt(tl, flyStart + 0.0001).camera // fly p≈0
     expect(flyBegin.zoom).toBeCloseTo(dwellA.zoom, 2)
     expect(flyBegin.bearing).toBeCloseTo(0, 2)
