@@ -43,17 +43,19 @@ function updateAnchor() {
     anchor.value = null
     return
   }
+  // map.project 返回相对地图画布的 CSS 像素；mapEl 以 w-full h-full 与舞台完全重合、无偏移，
+  // 所以投影坐标可直接当舞台内 left/top 用。布局若改动需重审这一假设。
   const pt = mapAdapter.project([node.lng, node.lat])
-  if (!pt) {
-    anchor.value = null
+  const panel = panelEl.value?.getBoundingClientRect()
+  if (!pt || !panel) {
+    anchor.value = null // 面板未挂载时宁可不画，也不画一条端点错误的线
     return
   }
-  const panel = panelEl.value?.getBoundingClientRect()
   anchor.value = {
     x2: pt.x,
     y2: pt.y,
-    x1: panel ? panel.right - stage.left : 16,
-    y1: panel ? panel.top + panel.height / 2 - stage.top : stage.height / 2,
+    x1: panel.right - stage.left,
+    y1: panel.top + panel.height / 2 - stage.top,
   }
 }
 
