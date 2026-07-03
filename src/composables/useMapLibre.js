@@ -32,7 +32,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
         tiles: ['https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png'],
         tileSize: 256,
         encoding: 'terrarium',
-        maxzoom: 12,
+        maxzoom: 14, // Terrarium 数据实际到 z15；再低会在高缩放时过采样变糊
       },
     },
     layers: [
@@ -68,7 +68,8 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     })
 
     map.on('error', (e) => {
-      if (e?.sourceId === 'dem') {
+      // 地形相关错误一律降级不上抛：瓦片错误带 sourceId，terrain 内部错误只能靠 message 识别
+      if (e?.sourceId === 'dem' || /terrain/i.test(e?.error?.message || '')) {
         console.warn('[FlightMap] 地形瓦片加载失败（不影响播放，平面继续）', e?.error || e)
         return
       }
@@ -109,6 +110,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
   }
 
   function applyCamera({ lng, lat, zoom, pitch, bearing, padding }) {
+    if (!map) return
     // padding.leftFrac（0~1，相对容器宽）→ 像素；节点因此偏向画面右侧
     const w = container.clientWidth || 0
     const left = Math.round((padding?.leftFrac ?? 0) * w)
@@ -160,7 +162,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
   function project(lngLat) {
     if (!map) return null
     const p = map.project(lngLat)
-    return { x: p.x, y: p.y }
+    return { x: Math.round(p.x), y: Math.round(p.y) }
   }
 
   function destroy() {
