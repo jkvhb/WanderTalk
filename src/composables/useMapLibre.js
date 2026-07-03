@@ -91,8 +91,17 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     requestAnimationFrame(poll)
   }
 
-  function applyCamera({ lng, lat, zoom, pitch, bearing }) {
-    map.jumpTo({ center: [lng, lat], zoom, pitch, bearing: bearing ?? 0 })
+  function applyCamera({ lng, lat, zoom, pitch, bearing, padding }) {
+    // padding.leftFrac（0~1，相对容器宽）→ 像素；节点因此偏向画面右侧
+    const w = container.clientWidth || 0
+    const left = Math.round((padding?.leftFrac ?? 0) * w)
+    map.jumpTo({
+      center: [lng, lat],
+      zoom,
+      pitch: pitch ?? 60,
+      bearing: bearing ?? 0,
+      padding: { top: 0, bottom: 0, left, right: 0 },
+    })
   }
   function setCamera(cam) {
     if (!map) {
@@ -130,6 +139,13 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     else map.once('load', () => applyRoute(paths))
   }
 
+  // 经纬度 → 舞台容器内像素坐标（引线/脉冲标记锚点用）；未建图返回 null
+  function project(lngLat) {
+    if (!map) return null
+    const p = map.project(lngLat)
+    return { x: p.x, y: p.y }
+  }
+
   function destroy() {
     destroyed = true
     try {
@@ -150,6 +166,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     },
     setCamera,
     drawRoute,
+    project,
     destroy,
   }
 }
