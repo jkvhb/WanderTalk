@@ -1,5 +1,5 @@
 import { easeInOutCubic, clamp01 } from './easing'
-import { pointAlongPath } from './geo'
+import { pointAlongPath, pathLength, chaikinSmooth, resampleByDistance } from './geo'
 
 const DEFAULTS = {
   introDuration: 3,
@@ -10,6 +10,12 @@ const DEFAULTS = {
   pitch: 60,
   intro: { title: '', subtitle: '' },
   outro: { lines: [] },
+}
+
+// 飞行段时长随距离：clamp(d_km/50, 2, 6) 秒；距离缺失/为 0 用兜底（老的固定时长语义）
+export function flyDurationForKm(dKm, fallback = 2.5) {
+  if (!(dKm > 0)) return fallback
+  return Math.min(6, Math.max(2, dKm / 50))
 }
 
 // stops: [{ node, audioDuration, routeToHere }]（有序，首个 routeToHere 通常为 []）
@@ -29,7 +35,12 @@ export function buildFlightTimeline(stops, opts = {}) {
   push('intro', o.introDuration, -1)
   stops.forEach((s, i) => {
     if (s.routeToHere && s.routeToHere.length >= 2) {
-      push('fly', o.flyDuration, i, s.routeToHere)
+      const meters = pathLength(s.routeToHere)
+      // 相机走的平滑线：切角 ×2 后按弧长重采样（步长控制在 ~300 点内、不小于 200m）
+      const smoothPath = resampleByDistance(chaikinSmooth(s.routeToHere, 2), Math.max(meters / 300, 200))
+      const duration = flyDurationForKm(meters / 1000, o.flyDuration)
+      scenes.push({ kind: 'fly', start: t, end: t + duration, duration, stopIndex: i, path: s.routeToHere, smoothPath })
+      t += duration
     }
     push('dwell', (s.audioDuration || 0) + o.dwellPadding, i)
   })
@@ -85,7 +96,8 @@ export function sampleAt(timeline, t) {
 
   if (scene.kind === 'fly') {
     const eased = easeInOutCubic(p)
-    const pos = pointAlongPath(scene.path, eased) || [node.lng, node.lat]
+    const line = scene.smoothPath || scene.path
+    const pos = pointAlongPath(line, eased) || [node.lng, node.lat]
     const prevAlt = timeline.stops[i - 1]?.node.altitude
     const altitude =
       typeof prevAlt === 'number' && typeof node.altitude === 'number'
