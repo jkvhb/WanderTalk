@@ -1,12 +1,15 @@
-import { easeInOutCubic, clamp01 } from './easing'
-import { pointAlongPath, pathLength, chaikinSmooth, resampleByDistance } from './geo'
+import { easeInOutCubic, clamp01, edgeWindow } from './easing'
+import { pointAlongPath, pathLength, chaikinSmooth, resampleByDistance, bearingAt, lerpAngle } from './geo'
 
 const DEFAULTS = {
   introDuration: 3,
-  flyDuration: 2.5,
+  flyDuration: 2.5, // 兜底：路径长度为 0 时的 fly 时长
   outroDuration: 4,
   dwellPadding: 0.8,
-  zoom: 9,
+  flyZoom: 9, // 飞行中段拉远看全局
+  dwellZoom: 11.5, // 停留拉近看细节（区县级，用户确认"温和档"）
+  padLeftFrac: 0.45, // 左侧留白比例 → 节点位于画面右侧约 70% 处
+  edge: 0.15, // fly 段两端过渡窗宽
   pitch: 60,
   intro: { title: '', subtitle: '' },
   outro: { lines: [] },
@@ -61,20 +64,32 @@ function sceneAt(timeline, tc) {
 const NO_AUDIO = { stopIndex: -1, playing: false, offset: 0 }
 const NO_CARD = { visible: false, stopIndex: -1, imageIndex: 0 }
 
+// 停留/片头/片尾共用的「特写相机」：拉近、正北、节点偏右（左侧留白给照片面板）
+function closeupCamera(node, o) {
+  return {
+    lng: node.lng,
+    lat: node.lat,
+    zoom: o.dwellZoom,
+    pitch: o.pitch,
+    bearing: 0,
+    padding: { leftFrac: o.padLeftFrac },
+  }
+}
+
 // 给定时刻 t，输出该刻的相位/相机/活动节点/音频/卡片/海拔/叠加层状态
 export function sampleAt(timeline, t) {
   const total = timeline.totalDuration
   const tc = Math.max(0, Math.min(t, total))
   const scene = sceneAt(timeline, tc)
   const p = scene.duration > 0 ? clamp01((tc - scene.start) / scene.duration) : 0
-  const { zoom, pitch } = timeline.opts
+  const o = timeline.opts
   const first = timeline.stops[0].node
   const last = timeline.stops[timeline.stops.length - 1].node
 
   if (scene.kind === 'intro') {
     return {
       phase: 'intro', t: tc,
-      camera: { lng: first.lng, lat: first.lat, zoom, pitch },
+      camera: closeupCamera(first, o),
       activeStopIndex: -1, audio: { ...NO_AUDIO }, card: { ...NO_CARD },
       altitude: first.altitude ?? null,
       overlay: { kind: 'intro', title: timeline.intro.title, subtitle: timeline.intro.subtitle },
@@ -84,7 +99,7 @@ export function sampleAt(timeline, t) {
   if (scene.kind === 'outro') {
     return {
       phase: 'outro', t: tc,
-      camera: { lng: last.lng, lat: last.lat, zoom, pitch },
+      camera: closeupCamera(last, o),
       activeStopIndex: -1, audio: { ...NO_AUDIO }, card: { ...NO_CARD },
       altitude: last.altitude ?? null,
       overlay: { kind: 'outro', lines: timeline.outro.lines },
@@ -98,6 +113,11 @@ export function sampleAt(timeline, t) {
     const eased = easeInOutCubic(p)
     const line = scene.smoothPath || scene.path
     const pos = pointAlongPath(line, eased) || [node.lng, node.lat]
+    // 两端归零窗：起飞时从特写相机缓出（拉远、转向行进方向、撤掉偏右），降落前缓回
+    const w = edgeWindow(p, o.edge)
+    const zoom = o.dwellZoom + (o.flyZoom - o.dwellZoom) * w
+    const bearing = lerpAngle(0, bearingAt(line, eased), w)
+    const padding = { leftFrac: o.padLeftFrac * (1 - w) }
     const prevAlt = timeline.stops[i - 1]?.node.altitude
     const altitude =
       typeof prevAlt === 'number' && typeof node.altitude === 'number'
@@ -105,7 +125,7 @@ export function sampleAt(timeline, t) {
         : node.altitude ?? null
     return {
       phase: 'fly', t: tc,
-      camera: { lng: pos[0], lat: pos[1], zoom, pitch },
+      camera: { lng: pos[0], lat: pos[1], zoom, pitch: o.pitch, bearing, padding },
       activeStopIndex: i, audio: { ...NO_AUDIO }, card: { ...NO_CARD },
       altitude, overlay: null,
     }
@@ -116,7 +136,7 @@ export function sampleAt(timeline, t) {
   const imageIndex = imgCount > 0 ? Math.min(imgCount - 1, Math.floor(p * imgCount)) : 0
   return {
     phase: 'dwell', t: tc,
-    camera: { lng: node.lng, lat: node.lat, zoom, pitch },
+    camera: closeupCamera(node, o),
     activeStopIndex: i,
     audio: { stopIndex: i, playing: true, offset: tc - scene.start },
     card: { visible: true, stopIndex: i, imageIndex },

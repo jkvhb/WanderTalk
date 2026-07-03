@@ -7,7 +7,10 @@ const OPTS = {
   flyDuration: 2.5,
   outroDuration: 4,
   dwellPadding: 1,
-  zoom: 9,
+  flyZoom: 9,
+  dwellZoom: 11.5,
+  padLeftFrac: 0.45,
+  edge: 0.15,
   pitch: 60,
   intro: { title: 'T', subtitle: 'S' },
   outro: { lines: ['L1'] },
@@ -57,7 +60,7 @@ describe('buildFlightTimeline', () => {
     expect(tl.stops).toHaveLength(2)
     expect(tl.intro.title).toBe('T')
     expect(tl.outro.lines).toEqual(['L1'])
-    expect(tl.opts.zoom).toBe(9)
+    expect(tl.opts.flyZoom).toBe(9)
   })
 
   it('opts 缺省值可用（只给 intro/outro 内容）', () => {
@@ -93,7 +96,7 @@ describe('sampleAt', () => {
     const s = sampleAt(tl, 1)
     expect(s.phase).toBe('intro')
     expect(s.overlay).toEqual({ kind: 'intro', title: 'T', subtitle: 'S' })
-    expect(s.camera).toMatchObject({ lng: 0, lat: 0, zoom: 9, pitch: 60 })
+    expect(s.camera).toMatchObject({ lng: 0, lat: 0, zoom: 11.5, pitch: 60, bearing: 0, padding: { leftFrac: 0.45 } })
     expect(s.card.visible).toBe(false)
     expect(s.audio.playing).toBe(false)
   })
@@ -107,14 +110,14 @@ describe('sampleAt', () => {
     expect(s.altitude).toBe(100)
   })
 
-  it('fly B：相机沿 routeToHere 缓动、海拔在两节点间插值', () => {
-    const s = sampleAt(tl, flyStart + flyDur * 0.4) // p=0.4
+  it('fly 中段：位置沿平滑线、拉远至 flyZoom、bearing 朝行进方向（正东 90°）', () => {
+    const s = sampleAt(tl, flyStart + flyDur * 0.5)
     expect(s.phase).toBe('fly')
-    expect(s.activeStopIndex).toBe(1)
-    expect(s.camera.lng).toBeCloseTo(0.256, 3) // easeInOutCubic(0.4)=0.256，单段线性
-    expect(s.camera.lat).toBeCloseTo(0, 6)
-    expect(s.altitude).toBe(126) // round(100 + 100*0.256)
-    expect(s.audio.playing).toBe(false)
+    expect(s.camera.lng).toBeCloseTo(0.5, 3) // eased(0.5)=0.5
+    expect(s.camera.zoom).toBeCloseTo(9, 6) // w=1 → flyZoom
+    expect(s.camera.bearing).toBeCloseTo(90, 1)
+    expect(s.camera.padding.leftFrac).toBeCloseTo(0, 6)
+    expect(s.altitude).toBe(150) // round(100 + 100*0.5)
   })
 
   it('dwell B：图片索引随段内进度在图片数内均分切换', () => {
@@ -132,5 +135,27 @@ describe('sampleAt', () => {
   it('t 越界被夹住', () => {
     expect(sampleAt(tl, -5).phase).toBe('intro')
     expect(sampleAt(tl, 999).phase).toBe('outro')
+  })
+
+  it('fly 两端与相邻 dwell 相机连续（zoom/bearing/padding 无跳变）', () => {
+    const dwellA = sampleAt(tl, 5.9).camera // dwell A 末尾
+    const flyBegin = sampleAt(tl, flyStart + 0.0001).camera // fly p≈0
+    expect(flyBegin.zoom).toBeCloseTo(dwellA.zoom, 2)
+    expect(flyBegin.bearing).toBeCloseTo(0, 2)
+    expect(flyBegin.padding.leftFrac).toBeCloseTo(0.45, 2)
+    expect(flyBegin.lng).toBeCloseTo(0, 3)
+
+    const flyEnd = sampleAt(tl, dwellBStart - 0.0001).camera // fly p≈1
+    const dwellB = sampleAt(tl, dwellBStart + 0.1).camera
+    expect(flyEnd.zoom).toBeCloseTo(dwellB.zoom, 2)
+    expect(flyEnd.bearing).toBeCloseTo(0, 2)
+    expect(flyEnd.padding.leftFrac).toBeCloseTo(0.45, 2)
+    expect(flyEnd.lng).toBeCloseTo(1, 3)
+  })
+
+  it('dwell/outro 相机为特写相机', () => {
+    expect(sampleAt(tl, 4).camera).toMatchObject({ zoom: 11.5, bearing: 0, padding: { leftFrac: 0.45 } })
+    const so = sampleAt(tl, tl.totalDuration)
+    expect(so.camera).toMatchObject({ lng: 1, lat: 0, zoom: 11.5, bearing: 0, padding: { leftFrac: 0.45 } })
   })
 })
