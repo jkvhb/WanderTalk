@@ -21,6 +21,18 @@ export function pathLength(path) {
   return sum
 }
 
+// 按弧长等距重采样：输出相邻点距≈step 的折线，首尾保持。
+// 目的：控制点数（性能）并让 pointAlongPath 的 frac 推进对应匀速前进。
+export function resampleByDistance(path, step) {
+  if (!path || path.length < 2 || !(step > 0)) return path ? [...path] : []
+  const total = pathLength(path)
+  if (total === 0) return [path[0], path[path.length - 1]]
+  const n = Math.max(1, Math.round(total / step))
+  const out = []
+  for (let i = 0; i <= n; i++) out.push(pointAlongPath(path, i / n))
+  return out
+}
+
 // Chaikin 切角平滑：每条边取 1/4、3/4 两点替代原顶点，保留首尾端点。
 // 相机中心走它而非原始驾车折线，消除发卡弯逐顶点抖动。经纬度小范围内线性插值足够。
 export function chaikinSmooth(path, iterations = 2) {

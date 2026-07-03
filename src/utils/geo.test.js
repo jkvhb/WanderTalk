@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { haversine, pathLength, pointAlongPath, chaikinSmooth } from './geo'
+import { haversine, pathLength, pointAlongPath, chaikinSmooth, resampleByDistance } from './geo'
 
 describe('haversine', () => {
   it('1 度纬度约 111km', () => {
@@ -63,5 +63,27 @@ describe('chaikinSmooth', () => {
     const out = chaikinSmooth(p, 2)
     expect(out).toEqual(p)
     expect(out).not.toBe(p)
+  })
+})
+
+describe('resampleByDistance', () => {
+  it('相邻点距≈step、首尾保持', () => {
+    const step = 11119 // ≈0.1 度经度
+    const out = resampleByDistance([[0, 0], [1, 0]], step)
+    expect(out[0]).toEqual([0, 0])
+    expect(out.at(-1)).toEqual([1, 0])
+    for (let i = 1; i < out.length; i++) {
+      const d = haversine(out[i - 1], out[i])
+      expect(Math.abs(d - step) / step).toBeLessThan(0.02)
+    }
+  })
+  it('总长近似不变（±1%）', () => {
+    const path = [[0, 0], [0.5, 0.2], [1, 0]]
+    const out = resampleByDistance(path, 5000)
+    expect(Math.abs(pathLength(out) - pathLength(path)) / pathLength(path)).toBeLessThan(0.01)
+  })
+  it('退化输入：少于 2 点或 step 非正 → 原样副本', () => {
+    expect(resampleByDistance([[1, 2]], 100)).toEqual([[1, 2]])
+    expect(resampleByDistance([[0, 0], [1, 0]], 0)).toEqual([[0, 0], [1, 0]])
   })
 })
