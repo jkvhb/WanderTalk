@@ -57,15 +57,6 @@ function updateAnchor() {
   }
 }
 
-// dwell 相机静止：进入/切换停留时算一次即可；窗口尺寸变了再算
-watch(
-  () => [sample.value?.phase, card.value?.stopIndex, imgUrls.value.length],
-  async () => {
-    await nextTick()
-    updateAnchor()
-  },
-)
-
 function fmt(sec) {
   if (!Number.isFinite(sec)) return '0:00'
   const m = Math.floor(sec / 60)
@@ -94,6 +85,16 @@ watch(
   },
 )
 const currentImg = computed(() => imgUrls.value[card.value?.imageIndex ?? 0] || null)
+
+// dwell 相机静止：进入/切换停留时算一次即可；窗口尺寸变了再算。
+// 注意：必须声明在 imgUrls 之后——watch 创建时会同步执行 getter，提前引用会触发 TDZ 报错。
+watch(
+  () => [sample.value?.phase, card.value?.stopIndex, imgUrls.value.length],
+  async () => {
+    await nextTick()
+    updateAnchor()
+  },
+)
 
 function stopAudioEl() {
   if (audioEl) {
