@@ -21,6 +21,39 @@ export function pathLength(path) {
   return sum
 }
 
+// 两点方位角：0=正北，顺时针 0~360
+export function bearingBetween([lng1, lat1], [lng2, lat2]) {
+  const f1 = toRad(lat1)
+  const f2 = toRad(lat2)
+  const dl = toRad(lng2 - lng1)
+  const y = Math.sin(dl) * Math.cos(f2)
+  const x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl)
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360
+}
+
+// 路径 frac 处的行进方位：取该点与前方 lookaheadM 处点的方位角。
+// 前瞻窗口本身即低通滤波；窗口越过终点时整体回退，保证不越界。
+export function bearingAt(path, frac, lookaheadM = 2000) {
+  if (!path || path.length < 2) return 0
+  const total = pathLength(path)
+  if (total === 0) return 0
+  const w = Math.min(lookaheadM / total, 1)
+  let f0 = clamp01(frac)
+  let f1 = f0 + w
+  if (f1 > 1) {
+    f0 = Math.max(0, 1 - w)
+    f1 = 1
+  }
+  return bearingBetween(pointAlongPath(path, f0), pointAlongPath(path, f1))
+}
+
+// 角度按最短弧插值（正确处理跨 0°），返回 [0,360)
+export function lerpAngle(a, b, t) {
+  const raw = ((b - a) % 360 + 360) % 360 // [0,360)
+  const diff = raw > 180 ? raw - 360 : raw  // (-180,180]，等距时取正弧
+  return (((a + diff * clamp01(t)) % 360) + 360) % 360
+}
+
 // 按弧长等距重采样：输出相邻点距≈step 的折线，首尾保持。
 // 目的：控制点数（性能）并让 pointAlongPath 的 frac 推进对应匀速前进。
 export function resampleByDistance(path, step) {

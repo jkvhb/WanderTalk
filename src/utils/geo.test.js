@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { haversine, pathLength, pointAlongPath, chaikinSmooth, resampleByDistance } from './geo'
+import { haversine, pathLength, pointAlongPath, chaikinSmooth, resampleByDistance, bearingBetween, bearingAt, lerpAngle } from './geo'
 
 describe('haversine', () => {
   it('1 度纬度约 111km', () => {
@@ -85,5 +85,46 @@ describe('resampleByDistance', () => {
   it('退化输入：少于 2 点或 step 非正 → 原样副本', () => {
     expect(resampleByDistance([[1, 2]], 100)).toEqual([[1, 2]])
     expect(resampleByDistance([[0, 0], [1, 0]], 0)).toEqual([[0, 0], [1, 0]])
+  })
+})
+
+describe('bearingBetween', () => {
+  it('正北 0°、正东 90°、正南 180°、正西 270°', () => {
+    expect(bearingBetween([0, 0], [0, 1])).toBeCloseTo(0, 4)
+    expect(bearingBetween([0, 0], [1, 0])).toBeCloseTo(90, 4)
+    expect(bearingBetween([0, 1], [0, 0])).toBeCloseTo(180, 4)
+    expect(bearingBetween([1, 0], [0, 0])).toBeCloseTo(270, 4)
+  })
+})
+
+describe('bearingAt', () => {
+  const east = [[0, 0], [1, 0]] // 正东直线，~111km
+  it('直线路径任意 frac 都是路径方向', () => {
+    expect(bearingAt(east, 0)).toBeCloseTo(90, 2)
+    expect(bearingAt(east, 0.5)).toBeCloseTo(90, 2)
+  })
+  it('前瞻越过终点自动回退取向后窗口，不越界', () => {
+    expect(bearingAt(east, 1)).toBeCloseTo(90, 2)
+    expect(bearingAt(east, 0.999, 2000)).toBeCloseTo(90, 2)
+  })
+  it('退化输入返回 0', () => {
+    expect(bearingAt([], 0.5)).toBe(0)
+    expect(bearingAt([[0, 0], [0, 0]], 0.5)).toBe(0)
+  })
+})
+
+describe('lerpAngle', () => {
+  it('普通插值：0→180 中点 90', () => {
+    expect(lerpAngle(0, 180, 0.5)).toBeCloseTo(90, 6)
+  })
+  it('跨 0° 走最短弧：350→10 中点 0，10→350 中点 0', () => {
+    expect(lerpAngle(350, 10, 0.5)).toBeCloseTo(0, 6)
+    expect(lerpAngle(10, 350, 0.5)).toBeCloseTo(0, 6)
+  })
+  it('端点精确、t 越界被夹住、输出在 [0,360)', () => {
+    expect(lerpAngle(350, 10, 0)).toBeCloseTo(350, 6)
+    expect(lerpAngle(350, 10, 1)).toBeCloseTo(10, 6)
+    expect(lerpAngle(350, 10, 2)).toBeCloseTo(10, 6)
+    expect(lerpAngle(0, 270, 0.5)).toBeCloseTo(315, 6) // 最短弧向负方向
   })
 })
