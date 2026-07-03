@@ -64,6 +64,12 @@ describe('chaikinSmooth', () => {
     expect(out).toEqual(p)
     expect(out).not.toBe(p)
   })
+  it('iterations=0 也返回新数组（不与输入共享引用）', () => {
+    const p = [[0, 0], [1, 0], [1, 1]]
+    const out = chaikinSmooth(p, 0)
+    expect(out).toEqual(p)
+    expect(out).not.toBe(p)
+  })
 })
 
 describe('resampleByDistance', () => {

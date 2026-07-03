@@ -50,19 +50,34 @@ export function bearingAt(path, frac, lookaheadM = 2000) {
 // 角度按最短弧插值（正确处理跨 0°），返回 [0,360)
 export function lerpAngle(a, b, t) {
   const raw = ((b - a) % 360 + 360) % 360 // [0,360)
-  const diff = raw > 180 ? raw - 360 : raw  // (-180,180]，等距时取正弧
+  const diff = raw > 180 ? raw - 360 : raw  // 差角归一到 [-180,180]，恰好 180° 时取正方向弧（0→180 走 90 一侧）
   return (((a + diff * clamp01(t)) % 360) + 360) % 360
 }
 
 // 按弧长等距重采样：输出相邻点距≈step 的折线，首尾保持。
 // 目的：控制点数（性能）并让 pointAlongPath 的 frac 推进对应匀速前进。
+// 用累计弧长表单趟插值（O(n)），避免逐点调 pointAlongPath 反复重算 pathLength（O(n²)）。
 export function resampleByDistance(path, step) {
   if (!path || path.length < 2 || !(step > 0)) return path ? [...path] : []
-  const total = pathLength(path)
+  const cum = [0]
+  for (let i = 1; i < path.length; i++) cum.push(cum[i - 1] + haversine(path[i - 1], path[i]))
+  const total = cum[cum.length - 1]
   if (total === 0) return [path[0], path[path.length - 1]]
   const n = Math.max(1, Math.round(total / step))
   const out = []
-  for (let i = 0; i <= n; i++) out.push(pointAlongPath(path, i / n))
+  let seg = 0
+  for (let i = 0; i <= n; i++) {
+    const target = (i / n) * total
+    while (seg < path.length - 2 && cum[seg + 1] < target) seg++
+    const segLen = cum[seg + 1] - cum[seg]
+    const t = segLen === 0 ? 0 : (target - cum[seg]) / segLen
+    out.push([
+      path[seg][0] + (path[seg + 1][0] - path[seg][0]) * t,
+      path[seg][1] + (path[seg + 1][1] - path[seg][1]) * t,
+    ])
+  }
+  out[0] = [...path[0]]
+  out[out.length - 1] = [...path[path.length - 1]]
   return out
 }
 
@@ -82,7 +97,7 @@ export function chaikinSmooth(path, iterations = 2) {
     out.push(pts[pts.length - 1])
     pts = out
   }
-  return pts
+  return pts === path ? [...path] : pts
 }
 
 // 按弧长比例 frac∈[0,1] 在折线上线性插值取点，返回 [lng,lat]
