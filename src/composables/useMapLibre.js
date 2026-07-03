@@ -26,6 +26,14 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     sources: {
       img: { type: 'raster', tiles: imgTiles, tileSize: 256 }, // 影像
       cia: { type: 'raster', tiles: ciaTiles, tileSize: 256 }, // 中文注记
+      dem: {
+        // AWS Terrarium 高程瓦片：免费、全球、无需 key
+        type: 'raster-dem',
+        tiles: ['https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        encoding: 'terrarium',
+        maxzoom: 12,
+      },
     },
     layers: [
       // 背景层：瓦片未加载时显示深蓝而非纯黑（可据此区分"画布没渲染"还是"瓦片没加载"）
@@ -60,11 +68,20 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     })
 
     map.on('error', (e) => {
+      if (e?.sourceId === 'dem') {
+        console.warn('[FlightMap] 地形瓦片加载失败（不影响播放，平面继续）', e?.error || e)
+        return
+      }
       console.error('[FlightMap error]', e?.error || e)
       onError?.(e?.error?.message || String(e?.error || '未知错误'))
     })
     map.on('load', () => {
       map.resize() // 建图后再兜一次尺寸
+      try {
+        map.setTerrain({ source: 'dem', exaggeration: 1.4 }) // 用户确认 1.4
+      } catch (err) {
+        console.warn('[FlightMap] 3D 地形启用失败，降级平面继续', err)
+      }
       if (pendingCamera) applyCamera(pendingCamera)
       if (pendingRoute) applyRoute(pendingRoute)
     })
