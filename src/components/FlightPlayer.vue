@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useFlightStore } from '../stores/flight'
 import { useSettingsStore } from '../stores/settings'
@@ -30,6 +30,41 @@ const activeNode = computed(() => {
   if (i == null || i < 0) return null
   return flight.timeline?.stops?.[i]?.node ?? null
 })
+
+// —— 节点特写锚点：dwell 时把节点经纬度投到舞台像素，画引线 + 脉冲标记 ——
+const stageEl = ref(null)
+const panelEl = ref(null)
+const anchor = ref(null) // { x1,y1 面板右缘中点, x2,y2 节点 } 舞台内像素
+
+function updateAnchor() {
+  const node = activeNode.value
+  const stage = stageEl.value?.getBoundingClientRect()
+  if (!node || !card.value?.visible || !mapAdapter?.project || !stage) {
+    anchor.value = null
+    return
+  }
+  const pt = mapAdapter.project([node.lng, node.lat])
+  if (!pt) {
+    anchor.value = null
+    return
+  }
+  const panel = panelEl.value?.getBoundingClientRect()
+  anchor.value = {
+    x2: pt.x,
+    y2: pt.y,
+    x1: panel ? panel.right - stage.left : 16,
+    y1: panel ? panel.top + panel.height / 2 - stage.top : stage.height / 2,
+  }
+}
+
+// dwell 相机静止：进入/切换停留时算一次即可；窗口尺寸变了再算
+watch(
+  () => [sample.value?.phase, card.value?.stopIndex, imgUrls.value.length],
+  async () => {
+    await nextTick()
+    updateAnchor()
+  },
+)
 
 function fmt(sec) {
   if (!Number.isFinite(sec)) return '0:00'
@@ -108,10 +143,12 @@ onMounted(async () => {
   mapAdapter.drawRoute(flight.timeline.stops.map((s) => s.routeToHere).filter((p) => p.length > 1))
   flight.attach(buildAdapter())
   flight.seek(0)
+  window.addEventListener('resize', updateAnchor)
   state.value = 'ready'
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateAnchor)
   flight.pause()
   flight.detach()
   stopAudioEl()
@@ -133,7 +170,7 @@ function toggle() {
     </div>
 
     <!-- 预览舞台：铺满预览区，给 MapLibre 一个确定尺寸的定位容器（精确 16:9 画幅留待导出阶段）-->
-    <div class="flex-1 relative overflow-hidden">
+    <div class="flex-1 relative overflow-hidden" ref="stageEl">
         <!-- 注意：不能用 absolute inset-0——maplibre-gl.css 的 .maplibregl-map{position:relative}
              会盖掉 Tailwind 的 absolute，令 inset-0 失效、容器塌成 0 高。用 w-full h-full 铺满父级。-->
         <div ref="mapEl" class="w-full h-full"></div>
@@ -179,12 +216,27 @@ function toggle() {
           海拔 <span class="font-semibold">{{ altitude }}</span> m
         </div>
 
-        <!-- 节点信息卡 + 图片轮播 -->
+        <!-- 引线：照片面板右缘中点 → 节点（写实底图上的轻量叠加）-->
+        <svg v-if="anchor" class="absolute inset-0 w-full h-full pointer-events-none">
+          <line :x1="anchor.x1" :y1="anchor.y1" :x2="anchor.x2" :y2="anchor.y2"
+            stroke="white" stroke-opacity="0.55" stroke-width="1.5" />
+          <circle :cx="anchor.x1" :cy="anchor.y1" r="3" fill="white" fill-opacity="0.7" />
+        </svg>
+
+        <!-- 节点脉冲标记 -->
+        <div v-if="anchor" :style="{ left: anchor.x2 + 'px', top: anchor.y2 + 'px', transform: 'translate(-50%, -50%)' }"
+          class="absolute pointer-events-none">
+          <span class="absolute -left-2.5 -top-2.5 w-5 h-5 rounded-full bg-teal-300/50 animate-ping"></span>
+          <span class="relative block w-2.5 h-2.5 rounded-full bg-teal-200 ring-2 ring-white/80"></span>
+        </div>
+
+        <!-- 左侧照片面板：实景照片（Ken Burns）+ 节点名/海拔/地址/备注 -->
         <div
           v-if="card?.visible && activeNode"
-          class="absolute left-4 bottom-16 w-72 rounded-xl overflow-hidden bg-black/55 text-white shadow-lg backdrop-blur-sm"
+          ref="panelEl"
+          class="absolute left-4 top-1/2 -translate-y-1/2 w-[30%] max-w-sm rounded-xl overflow-hidden bg-black/55 text-white shadow-lg backdrop-blur-sm"
         >
-          <div v-if="currentImg" class="relative h-40 overflow-hidden">
+          <div v-if="currentImg" class="relative h-44 overflow-hidden">
             <img
               :key="card.stopIndex + '-' + card.imageIndex"
               :src="currentImg"
