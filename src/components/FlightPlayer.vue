@@ -45,7 +45,11 @@ function updateAnchor() {
   }
   // map.project 返回相对地图画布的 CSS 像素；mapEl 以 w-full h-full 与舞台完全重合、无偏移，
   // 所以投影坐标可直接当舞台内 left/top 用。布局若改动需重审这一假设。
-  const pt = mapAdapter.project([node.lng, node.lat])
+  // 标记锚在驾车路线的终点而非 POI 坐标：POI 常在街区内、离公路几十上百米，
+  // 画在路线上才符合"节点在路上"的直觉（首节点无路线时退回 POI 坐标）。
+  const route = flight.timeline?.stops?.[card.value.stopIndex]?.routeToHere
+  const lngLat = route?.length ? route[route.length - 1] : [node.lng, node.lat]
+  const pt = mapAdapter.project(lngLat)
   const panel = panelEl.value?.getBoundingClientRect()
   if (!pt || !panel) {
     anchor.value = null // 面板未挂载时宁可不画，也不画一条端点错误的线
@@ -243,7 +247,7 @@ function toggle() {
             <img
               :key="card.stopIndex + '-' + card.imageIndex"
               :src="currentImg"
-              class="w-full h-full object-cover kb-img"
+              class="w-full h-full object-cover"
               alt=""
             />
           </div>
@@ -284,11 +288,3 @@ function toggle() {
     </div>
   </div>
 </template>
-
-<style scoped>
-@keyframes kenburns {
-  from { transform: scale(1) translate(0, 0); }
-  to { transform: scale(1.12) translate(-2%, -2%); }
-}
-.kb-img { animation: kenburns 6s ease-out forwards; }
-</style>

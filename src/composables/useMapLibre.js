@@ -68,13 +68,20 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     })
 
     map.on('error', (e) => {
+      const msg = e?.error?.message || ''
       // 地形相关错误一律降级不上抛：瓦片错误带 sourceId，terrain 内部错误只能靠 message 识别
-      if (e?.sourceId === 'dem' || /terrain/i.test(e?.error?.message || '')) {
+      if (e?.sourceId === 'dem' || /terrain/i.test(msg)) {
         console.warn('[FlightMap] 地形瓦片加载失败（不影响播放，平面继续）', e?.error || e)
         return
       }
+      // 429 = 天地图 QPS 瞬时限流（打开预览时斜视视野一次拉几百张瓦片），
+      // MapLibre 会自动重试成功，属瞬态，不值得弹红色横幅吓用户
+      if (/429|请求太多|Too Many Requests/i.test(msg)) {
+        console.warn('[FlightMap] 瓦片限流(429)，稍后自动恢复', e?.error || e)
+        return
+      }
       console.error('[FlightMap error]', e?.error || e)
-      onError?.(e?.error?.message || String(e?.error || '未知错误'))
+      onError?.(msg || String(e?.error || '未知错误'))
     })
     map.on('load', () => {
       map.resize() // 建图后再兜一次尺寸
