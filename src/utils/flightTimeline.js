@@ -54,23 +54,14 @@ export function buildFlightTimeline(stops, opts = {}) {
       ])
       push('fly', flyDurationForKm(meters / 1000, o.flyDuration), i, { path: s.routeToHere, legBounds, cum })
     }
-    // dwell = 揭幕开 + 语音 + 停顿 + 揭幕收；相机在盖住瞬间暗中换场
-    const nextHasLeg = stops[i + 1]?.routeToHere && stops[i + 1].routeToHere.length >= 2
+    // dwell = 揭幕开 + 语音 + 停顿 + 揭幕收；相机整段保持进场画面，
+    // 段间平移过渡由下一场景的 easeTo 完成（2026-07-05 手测修订：暗切太突兀，要看得见滑动）
     push('dwell', o.wipeDuration + (s.audioDuration || 0) + o.dwellPadding + o.wipeDuration, i, {
       audioDuration: s.audioDuration || 0,
       camBefore: legBounds ? { sceneId: `leg-${i}`, bounds: legBounds } : { sceneId: 'all', bounds: wholeBounds },
-      camAfter: nextHasLeg ? { sceneId: `leg-${i + 1}`, bounds: null } : { sceneId: 'all', bounds: wholeBounds },
     })
   })
   push('outro', o.outroDuration, -1)
-
-  // 回填 camAfter 的"下一段包围盒"（下一段 fly 场景在本 dwell 之后才 push）
-  scenes.forEach((sc) => {
-    if (sc.kind === 'dwell' && sc.camAfter.bounds == null) {
-      const next = scenes.find((x) => x.kind === 'fly' && `leg-${x.stopIndex}` === sc.camAfter.sceneId)
-      sc.camAfter = { ...sc.camAfter, bounds: next ? next.legBounds : wholeBounds }
-    }
-  })
 
   return { totalDuration: t, scenes, stops, wholeBounds, intro: o.intro, outro: o.outro, opts: o }
 }
@@ -154,17 +145,17 @@ export function sampleAt(timeline, t) {
     }
   }
 
-  // dwell：揭幕(开) → 讲解 → 揭幕(收)；盖住瞬间相机暗中切下一段
+  // dwell：揭幕(开) → 讲解 → 揭幕(收)；相机整段不动（收圆露出的仍是进场画面），
+  // 滑向下一段总览的可见平移由下一场景 sceneId 变化触发 adapter 的 easeTo
   const wipe = o.wipeDuration
   const revealFrac = edgeWindow(p, scene.duration > 0 ? wipe / scene.duration : 0)
-  const covered = tc - scene.start >= wipe
   const audioStart = scene.start + wipe // 语音窗口后移：盖住后才开讲
   const playing = scene.audioDuration > 0 && tc >= audioStart && tc < audioStart + scene.audioDuration
   const imgCount = node.images?.length ?? 0
   const imageIndex = imgCount > 0 ? Math.min(imgCount - 1, Math.floor(p * imgCount)) : 0
   return {
     phase: 'dwell', t: tc,
-    camera: boundsCamera(covered ? scene.camAfter : scene.camBefore, o),
+    camera: boundsCamera(scene.camBefore, o),
     car: null,
     progress: { legIndex: i, frac: 1 },
     showcase: { stopIndex: i, imageIndex, revealFrac },

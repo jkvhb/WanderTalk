@@ -108,10 +108,10 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
         if (hasSize()) build()
       } else {
         map.resize()
-        // 容器尺寸变了，包围盒相机需按新尺寸重算
+        // 容器尺寸变了，包围盒相机需按新尺寸重算（直接跳，不做滑动动画）
         if (lastBoundsCam) {
           lastBoundsSceneId = null
-          applyCamera(lastBoundsCam)
+          applyCamera(lastBoundsCam, { animate: false })
         }
       }
     })
@@ -128,7 +128,8 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
 
   let lastBoundsSceneId = null
   let lastBoundsCam = null
-  function applyCamera(cam) {
+  const CAM_EASE_MS = 1200 // 场景切换的相机平移滑动时长（2026-07-05 手测修订：暗切改可见滑动）
+  function applyCamera(cam, { animate = true } = {}) {
     if (!map) return
     if (cam?.kind === 'bounds') {
       if (!cam.bounds) return
@@ -136,20 +137,26 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
       const short = Math.min(container.clientWidth || 0, container.clientHeight || 0)
       let fitted = null
       try {
-        // 注：cameraForBounds 按 bearing=0 平面拟合；pitch 由 jumpTo 附加，
+        // 注：cameraForBounds 按 bearing=0 平面拟合；pitch 由 jumpTo/easeTo 附加，
         // 25° 俯仰的形变靠 padFrac 外扩兜住（手测可调 boundsPadFrac）。
         fitted = map.cameraForBounds(cam.bounds, { padding: Math.round(short * (cam.padFrac ?? 0.15)) })
       } catch {
         /* 包围盒非法时保持原相机 */
       }
       if (!fitted) return
-      map.jumpTo({
+      const target = {
         center: fitted.center,
         zoom: fitted.zoom,
         pitch: cam.pitch ?? 25,
         bearing: cam.bearing ?? 0,
         padding: { top: 0, bottom: 0, left: 0, right: 0 },
-      })
+      }
+      // 首个相机/resize 重取景直接跳；场景切换用 easeTo——观众要看得见镜头从上一段滑到下一段
+      if (animate && lastBoundsCam) {
+        map.easeTo({ ...target, duration: CAM_EASE_MS, essential: true })
+      } else {
+        map.jumpTo(target)
+      }
       lastBoundsSceneId = cam.sceneId ?? null
       lastBoundsCam = cam
       return

@@ -73,10 +73,8 @@ describe('buildFlightTimeline', () => {
     expect(fly.legBounds).toEqual([[0, 0], [1, 0]])
     const [dwellA, dwellB] = tl.scenes.filter((s) => s.kind === 'dwell')
     expect(dwellA.camBefore.sceneId).toBe('all') // 首节点无来路 → 与 intro 连续
-    expect(dwellA.camAfter.sceneId).toBe('leg-1')
-    expect(dwellA.camAfter.bounds).toEqual([[0, 0], [1, 0]]) // 回填成功
+    expect(dwellA.camBefore.bounds).toEqual([[0, 0], [1, 0]])
     expect(dwellB.camBefore.sceneId).toBe('leg-1')
-    expect(dwellB.camAfter.sceneId).toBe('all') // 末节点收圆露全程
   })
 
   it('fly 场景带累计弧长表（末值=路径总长）', () => {
@@ -128,11 +126,12 @@ describe('sampleAt · 契约 v2', () => {
     expect(sampleAt(tl, dA + 3.75).showcase.revealFrac).toBeCloseTo(0.5, 6)
   })
 
-  it('dwell 相机暗中换场：盖住前=进场画面，盖住后=下一段', () => {
-    expect(sampleAt(tl, 3.2).camera.sceneId).toBe('all') // 首节点盖住前与 intro 连续
-    expect(sampleAt(tl, 3.6).camera.sceneId).toBe('leg-1')
+  it('dwell 相机整段保持进场画面（平移过渡交给下段场景的 easeTo，2026-07-05 手测修订）', () => {
+    expect(sampleAt(tl, 3.2).camera.sceneId).toBe('all') // 首节点与 intro 连续
+    expect(sampleAt(tl, 3.6).camera.sceneId).toBe('all')
+    expect(sampleAt(tl, 6.8).camera.sceneId).toBe('all') // 收圆期间也不换
     expect(sampleAt(tl, dwellBStart + 0.2).camera.sceneId).toBe('leg-1')
-    expect(sampleAt(tl, dwellBStart + 0.7).camera.sceneId).toBe('all') // 末节点收圆露全程
+    expect(sampleAt(tl, dwellBStart + 4.8).camera.sceneId).toBe('leg-1')
   })
 
   it('语音窗口后移：揭幕期间不播，盖住后开播、offset 扣除 wipe', () => {

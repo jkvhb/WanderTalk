@@ -68,11 +68,11 @@ function tryUpdateWipeOrigin(retries = 10) {
     originRetryId = requestAnimationFrame(() => tryUpdateWipeOrigin(retries - 1))
   }
 }
-// 两个时机重算圆心：进入新 dwell（扩圆）；相机暗中换场后（收圆要朝新总览里的同一节点收拢）。
-// 同步立即算——store 在同一 tick 已 jumpTo 完毕，而 stage/map 都不依赖展示页 div 挂载；
+// 进入新 dwell 时重算圆心（相机整段不动，无需二次重算）。
+// 同步立即算——store 在同一 tick 已应用相机，而 stage/map 都不依赖展示页 div 挂载；
 // 等 nextTick 反而给"seek 进揭幕边缘"留出一帧错圆心
 watch(
-  () => [showcase.value?.stopIndex, sample.value?.camera?.sceneId],
+  () => showcase.value?.stopIndex,
   () => tryUpdateWipeOrigin(),
 )
 
