@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useFlightStore } from '../stores/flight'
 import { useSettingsStore } from '../stores/settings'
@@ -47,23 +47,33 @@ const wipeOrigin = ref({ x: 0, y: 0, maxR: 0 })
 function updateWipeOrigin() {
   const stage = stageEl.value?.getBoundingClientRect()
   const i = showcase.value?.stopIndex
-  if (!stage || i == null || i < 0 || !mapAdapter?.project) return
+  if (!stage || i == null || i < 0 || !mapAdapter?.project) return false
   const stop = flight.timeline?.stops?.[i]
-  if (!stop) return
+  if (!stop) return false
   // 圆心锚路线终点（驾车路线吸附道路）；首节点无路线退回节点坐标
   const route = stop.routeToHere
   const lngLat = route?.length ? route[route.length - 1] : [stop.node.lng, stop.node.lat]
   const pt = mapAdapter.project(lngLat)
-  if (!pt) return
+  if (!pt) return false
   wipeOrigin.value = { x: pt.x, y: pt.y, maxR: Math.hypot(stage.width, stage.height) }
+  return true
 }
-// 两个时机重算圆心：进入新 dwell（扩圆）；相机暗中换场后（收圆要朝新总览里的同一节点收拢）
+// 地图未建成（懒建图竞态）时单次计算会失败——有限重试，否则首个 dwell 的展示页
+// 会被 circle(0) 整段裁没且无自愈时机
+let originRetryId = 0
+function tryUpdateWipeOrigin(retries = 10) {
+  if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(originRetryId)
+  if (updateWipeOrigin() || retries <= 0) return
+  if (typeof requestAnimationFrame !== 'undefined') {
+    originRetryId = requestAnimationFrame(() => tryUpdateWipeOrigin(retries - 1))
+  }
+}
+// 两个时机重算圆心：进入新 dwell（扩圆）；相机暗中换场后（收圆要朝新总览里的同一节点收拢）。
+// 同步立即算——store 在同一 tick 已 jumpTo 完毕，而 stage/map 都不依赖展示页 div 挂载；
+// 等 nextTick 反而给"seek 进揭幕边缘"留出一帧错圆心
 watch(
   () => [showcase.value?.stopIndex, sample.value?.camera?.sceneId],
-  async () => {
-    await nextTick()
-    updateWipeOrigin()
-  },
+  () => tryUpdateWipeOrigin(),
 )
 
 const wipeStyle = computed(() => {
@@ -154,6 +164,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(originRetryId)
   window.removeEventListener('resize', updateWipeOrigin)
   flight.pause()
   flight.detach()
