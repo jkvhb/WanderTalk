@@ -85,6 +85,8 @@ export const useFlightStore = defineStore('flight', () => {
     sample.value = s
     if (!adapter) return
     adapter.setCamera(s.camera)
+    adapter.setCar?.(s.car ?? null)
+    adapter.setProgress?.(s.progress ?? null)
     if (s.audio.playing) {
       if (s.audio.stopIndex !== audioStop) {
         audioStop = s.audio.stopIndex

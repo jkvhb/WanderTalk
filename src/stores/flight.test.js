@@ -133,4 +133,28 @@ describe('flight store 播放', () => {
     flight.tick(5)
     expect(flight.t).toBe(frozen)
   })
+
+  it('透传 setCar/setProgress：fly 有车、dwell 车为 null 且进度走满', () => {
+    const flight = useFlightStore()
+    const adapter = {
+      setCamera: vi.fn(), playAudio: vi.fn(), stopAudio: vi.fn(),
+      setCar: vi.fn(), setProgress: vi.fn(),
+    }
+    flight.attach(adapter)
+    flight.loadTimeline(tinyTimeline(), [new Blob(['0']), new Blob(['1'])])
+    flight.seek(8) // fly 段（7 ~ 约 9.22）
+    expect(adapter.setCar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lng: expect.any(Number), headingDeg: expect.any(Number) }),
+    )
+    expect(adapter.setProgress).toHaveBeenLastCalledWith(expect.objectContaining({ legIndex: 1 }))
+    flight.seek(4) // dwell A
+    expect(adapter.setCar).toHaveBeenLastCalledWith(null)
+    expect(adapter.setProgress).toHaveBeenLastCalledWith({ legIndex: 0, frac: 1 })
+  })
+
+  it('旧 adapter 无 setCar/setProgress 也不报错（可选链）', () => {
+    const flight = useFlightStore()
+    flight.attach({ setCamera: vi.fn(), playAudio: vi.fn(), stopAudio: vi.fn() })
+    expect(() => flight.loadTimeline(tinyTimeline(), [])).not.toThrow()
+  })
 })
