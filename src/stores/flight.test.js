@@ -63,13 +63,13 @@ describe('flight store buildFromPlan', () => {
 })
 
 function tinyTimeline() {
-  // intro 3 | dwell A (2+1=3) | fly B 2.5 | dwell B (3+1=4) | outro 4 = 16.5
+  // intro 3 | dwell A (0.5+2+1+0.5=4) → 3~7 | fly ~2.22 | dwell B (0.5+3+1+0.5=5) | outro 4
   const stops = [
     { node: { lng: 0, lat: 0, name: 'A', altitude: 100, images: [] }, audioDuration: 2, routeToHere: [] },
     { node: { lng: 1, lat: 0, name: 'B', altitude: 200, images: [] }, audioDuration: 3, routeToHere: [[0, 0], [1, 0]] },
   ]
   return buildFlightTimeline(stops, {
-    introDuration: 3, flyDuration: 2.5, outroDuration: 4, dwellPadding: 1,
+    introDuration: 3, flyDuration: 2.5, outroDuration: 4, dwellPadding: 1, wipeDuration: 0.5,
     intro: { title: 'T', subtitle: '' }, outro: { lines: [] },
   })
 }
@@ -95,7 +95,7 @@ describe('flight store 播放', () => {
   it('seek 进 dwell A → 播放 blob0、offset 正确', () => {
     const { flight, adapter, blob0 } = setup()
     flight.seek(4) // dwell A 始于 3
-    expect(adapter.playAudio).toHaveBeenCalledWith(blob0, 1)
+    expect(adapter.playAudio).toHaveBeenCalledWith(blob0, 0.5)
     expect(flight.sample.phase).toBe('dwell')
   })
 
