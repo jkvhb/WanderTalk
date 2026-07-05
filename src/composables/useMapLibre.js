@@ -1,5 +1,6 @@
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { createCarElement } from '../assets/carMarker'
 
 // 天地图栅格瓦片（DataServer，Web Mercator "_w"）。MapLibre 不支持 {s}，手动展开子域 t0~t7。
 // 用 DataServer 端点（参数少、最常用、最稳），img_w=影像、cia_w=中文注记。
@@ -8,6 +9,10 @@ function tdtTiles(layer, tk) {
     (s) => `https://t${s}.tianditu.gov.cn/DataServer?T=${layer}_w&x={x}&y={y}&l={z}&tk=${tk}`,
   )
 }
+
+// 路线进度配色：已走=青绿、未走=橙
+const ROUTE_DONE = '#5DCAA5'
+const ROUTE_TODO = '#ff5a36'
 
 // 建一张只读（不可手势交互）的天地图，供逐帧 jumpTo 驱动。
 //
@@ -103,6 +108,11 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
         if (hasSize()) build()
       } else {
         map.resize()
+        // 容器尺寸变了，包围盒相机需按新尺寸重算
+        if (lastBoundsCam) {
+          lastBoundsSceneId = null
+          applyCamera(lastBoundsCam)
+        }
       }
     })
     ro.observe(container)
@@ -116,16 +126,44 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     requestAnimationFrame(poll)
   }
 
-  function applyCamera({ lng, lat, zoom, pitch, bearing, padding }) {
+  let lastBoundsSceneId = null
+  let lastBoundsCam = null
+  function applyCamera(cam) {
     if (!map) return
-    // padding.leftFrac（0~1，相对容器宽）→ 像素；节点因此偏向画面右侧
+    if (cam?.kind === 'bounds') {
+      if (!cam.bounds) return
+      if (cam.sceneId != null && cam.sceneId === lastBoundsSceneId) return // 场景内相机静止
+      const short = Math.min(container.clientWidth || 0, container.clientHeight || 0)
+      let fitted = null
+      try {
+        // 注：cameraForBounds 按 bearing=0 平面拟合；pitch 由 jumpTo 附加，
+        // 25° 俯仰的形变靠 padFrac 外扩兜住（手测可调 boundsPadFrac）。
+        fitted = map.cameraForBounds(cam.bounds, { padding: Math.round(short * (cam.padFrac ?? 0.15)) })
+      } catch {
+        /* 包围盒非法时保持原相机 */
+      }
+      if (!fitted) return
+      map.jumpTo({
+        center: fitted.center,
+        zoom: fitted.zoom,
+        pitch: cam.pitch ?? 25,
+        bearing: cam.bearing ?? 0,
+        padding: { top: 0, bottom: 0, left: 0, right: 0 },
+      })
+      lastBoundsSceneId = cam.sceneId ?? null
+      lastBoundsCam = cam
+      return
+    }
+    // 兼容旧点相机 {lng,lat,zoom,pitch,bearing,padding:{leftFrac}}
+    lastBoundsSceneId = null
+    lastBoundsCam = null
     const w = container.clientWidth || 0
-    const left = Math.round((padding?.leftFrac ?? 0) * w)
+    const left = Math.round((cam.padding?.leftFrac ?? 0) * w)
     map.jumpTo({
-      center: [lng, lat],
-      zoom,
-      pitch: pitch ?? 60,
-      bearing: bearing ?? 0,
+      center: [cam.lng, cam.lat],
+      zoom: cam.zoom,
+      pitch: cam.pitch ?? 60,
+      bearing: cam.bearing ?? 0,
       padding: { top: 0, bottom: 0, left, right: 0 },
     })
   }
@@ -137,23 +175,36 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     applyCamera(cam)
   }
 
-  // paths: [[ [lng,lat]... ], ...] 多段路线折线
+  const emptyFC = () => ({ type: 'FeatureCollection', features: [] })
+  const fcOfLegs = (legs) => ({
+    type: 'FeatureCollection',
+    features: legs.map((p) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: p }, properties: {} })),
+  })
+  const lineOf = (p) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: p || [] }, properties: {} })
+
+  let legPaths = []
+  let curLegIndex = null
+  // paths: 每站一条来路折线，与 stops 下标对齐（短/空段占位 null，保证 legIndex 对得上）
   function applyRoute(paths) {
-    const features = (paths || [])
-      .filter((p) => p && p.length > 1)
-      .map((p) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: p }, properties: {} }))
-    const data = { type: 'FeatureCollection', features }
-    if (map.getSource('route')) {
-      map.getSource('route').setData(data)
-      return
+    legPaths = (paths || []).map((p) => (p && p.length > 1 ? p : null))
+    curLegIndex = null
+    const ensure = (id, data, lineMetrics) => {
+      if (map.getSource(id)) map.getSource(id).setData(data)
+      else map.addSource(id, { type: 'geojson', data, ...(lineMetrics ? { lineMetrics: true } : {}) })
     }
-    map.addSource('route', { type: 'geojson', data })
-    map.addLayer({
-      id: 'route-line',
-      type: 'line',
-      source: 'route',
-      paint: { 'line-color': '#ff5a36', 'line-width': 3, 'line-opacity': 0.9 },
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    ensure('route-todo', fcOfLegs(legPaths.filter(Boolean)))
+    ensure('route-done', emptyFC())
+    ensure('route-current', lineOf([]), true) // lineMetrics：line-progress 渐变要用
+    const layer = (id, source, paint) => {
+      if (!map.getLayer(id)) {
+        map.addLayer({ id, type: 'line', source, paint, layout: { 'line-cap': 'round', 'line-join': 'round' } })
+      }
+    }
+    layer('route-todo-line', 'route-todo', { 'line-color': ROUTE_TODO, 'line-width': 3, 'line-opacity': 0.45 })
+    layer('route-done-line', 'route-done', { 'line-color': ROUTE_DONE, 'line-width': 3.5, 'line-opacity': 0.95 })
+    layer('route-current-line', 'route-current', {
+      'line-width': 4,
+      'line-gradient': ['step', ['line-progress'], ROUTE_DONE, 0.0000001, ROUTE_TODO],
     })
   }
   function drawRoute(paths) {
@@ -163,6 +214,54 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     }
     if (map.isStyleLoaded()) applyRoute(paths)
     else map.once('load', () => applyRoute(paths))
+  }
+
+  // 进度上色：progress={legIndex,frac}；null=复位全未走（seek 回 intro）
+  function setProgress(progress) {
+    if (!map || !map.getSource('route-current')) return
+    if (!progress) {
+      if (curLegIndex !== null) {
+        curLegIndex = null
+        map.getSource('route-todo').setData(fcOfLegs(legPaths.filter(Boolean)))
+        map.getSource('route-done').setData(emptyFC())
+        map.getSource('route-current').setData(lineOf([]))
+      }
+      return
+    }
+    const { legIndex, frac } = progress
+    if (legIndex !== curLegIndex) {
+      curLegIndex = legIndex
+      map.getSource('route-done').setData(fcOfLegs(legPaths.slice(0, legIndex).filter(Boolean)))
+      map.getSource('route-todo').setData(fcOfLegs(legPaths.slice(legIndex + 1).filter(Boolean)))
+      map.getSource('route-current').setData(legPaths[legIndex] ? lineOf(legPaths[legIndex]) : lineOf([]))
+    }
+    const f = Math.min(Math.max(frac, 0.0000001), 1)
+    map.setPaintProperty('route-current-line', 'line-gradient', ['step', ['line-progress'], ROUTE_DONE, f, ROUTE_TODO])
+  }
+
+  let carMarker = null
+  let carApi = null
+  function setCar(car) {
+    if (!map) return
+    if (!car) {
+      if (carMarker) {
+        carMarker.remove()
+        carMarker = null
+        carApi = null
+      }
+      return
+    }
+    if (!carMarker) {
+      carApi = createCarElement()
+      // Marker 默认 viewport 对齐：车标直立、不随地图旋转/俯仰
+      carMarker = new maplibregl.Marker({ element: carApi.el, anchor: 'bottom' })
+        .setLngLat([car.lng, car.lat])
+        .addTo(map)
+    } else {
+      carMarker.setLngLat([car.lng, car.lat])
+    }
+    // 车头默认朝右（东）；行进方位在西半侧（180°~360°）时翻转
+    carApi.setFlip(car.headingDeg > 180)
   }
 
   // 经纬度 → 舞台容器内像素坐标（引线/脉冲标记锚点用）；未建图返回 null
@@ -180,6 +279,11 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
       /* 忽略 */
     }
     try {
+      carMarker?.remove()
+    } catch {
+      /* 忽略 */
+    }
+    try {
       map?.remove()
     } catch {
       /* 忽略 */
@@ -193,6 +297,8 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     setCamera,
     drawRoute,
     project,
+    setCar,
+    setProgress,
     destroy,
   }
 }
