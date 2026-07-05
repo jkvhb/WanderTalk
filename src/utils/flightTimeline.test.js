@@ -78,6 +78,13 @@ describe('buildFlightTimeline', () => {
     expect(dwellB.camBefore.sceneId).toBe('leg-1')
     expect(dwellB.camAfter.sceneId).toBe('all') // 末节点收圆露全程
   })
+
+  it('fly 场景带累计弧长表（末值=路径总长）', () => {
+    const tl = buildFlightTimeline(twoStops(), OPTS)
+    const fly = tl.scenes.find((s) => s.kind === 'fly')
+    expect(fly.cum.at(-1)).toBeCloseTo(pathLength([[0, 0], [1, 0]]), 6)
+    expect(fly.cum[0]).toBe(0)
+  })
 })
 
 describe('sampleAt · 契约 v2', () => {
@@ -106,7 +113,8 @@ describe('sampleAt · 契约 v2', () => {
     expect(s.car.lat).toBeCloseTo(0, 6)
     expect(s.car.headingDeg).toBeCloseTo(90, 1)
     expect(s.car.frac).toBeCloseTo(0.5, 6)
-    expect(s.progress).toEqual({ legIndex: 1, frac: s.car.frac })
+    expect(s.progress.legIndex).toBe(1)
+    expect(s.progress.frac).toBeCloseTo(0.5, 6) // 独立对齐 easeInOutCubic(0.5)=0.5，不引用 car.frac
     expect(s.showcase).toBeNull()
     expect(s.altitude).toBe(150) // round(100 + 100*0.5)
   })

@@ -1,5 +1,5 @@
 import { easeInOutCubic, clamp01, edgeWindow } from './easing'
-import { pointAlongPath, pathLength, bearingAt, boundsOfPath } from './geo'
+import { pointAlongPath, bearingAt, boundsOfPath, cumulativeLengths } from './geo'
 
 const DEFAULTS = {
   introDuration: 3,
@@ -44,14 +44,15 @@ export function buildFlightTimeline(stops, opts = {}) {
   stops.forEach((s, i) => {
     let legBounds = null
     if (s.routeToHere && s.routeToHere.length >= 2) {
-      const meters = pathLength(s.routeToHere)
+      const cum = cumulativeLengths(s.routeToHere)
+      const meters = cum[cum.length - 1]
       const prev = stops[i - 1]?.node
       // 段包围盒 = 路线 ∪ 两端节点（POI 可能离路几十米，纳入保证可见）
       legBounds = boundsOfPath(s.routeToHere, [
         [s.node.lng, s.node.lat],
         ...(prev ? [[prev.lng, prev.lat]] : []),
       ])
-      push('fly', flyDurationForKm(meters / 1000, o.flyDuration), i, { path: s.routeToHere, legBounds })
+      push('fly', flyDurationForKm(meters / 1000, o.flyDuration), i, { path: s.routeToHere, legBounds, cum })
     }
     // dwell = 揭幕开 + 语音 + 停顿 + 揭幕收；相机在盖住瞬间暗中换场
     const nextHasLeg = stops[i + 1]?.routeToHere && stops[i + 1].routeToHere.length >= 2
@@ -136,7 +137,7 @@ export function sampleAt(timeline, t) {
 
   if (scene.kind === 'fly') {
     const eased = easeInOutCubic(p) // 车出站/进站缓入缓出
-    const pos = pointAlongPath(scene.path, eased) || [node.lng, node.lat]
+    const pos = pointAlongPath(scene.path, eased, scene.cum) || [node.lng, node.lat]
     const prevAlt = timeline.stops[i - 1]?.node.altitude
     const altitude =
       typeof prevAlt === 'number' && typeof node.altitude === 'number'
@@ -145,7 +146,7 @@ export function sampleAt(timeline, t) {
     return {
       phase: 'fly', t: tc,
       camera: boundsCamera({ sceneId: `leg-${i}`, bounds: scene.legBounds }, o),
-      car: { lng: pos[0], lat: pos[1], headingDeg: bearingAt(scene.path, eased, 500), frac: eased },
+      car: { lng: pos[0], lat: pos[1], headingDeg: bearingAt(scene.path, eased, 500, scene.cum), frac: eased },
       progress: { legIndex: i, frac: eased },
       showcase: null,
       activeStopIndex: i, audio: { ...NO_AUDIO },

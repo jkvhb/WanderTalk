@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { haversine, pathLength, pointAlongPath, chaikinSmooth, resampleByDistance, bearingBetween, bearingAt, lerpAngle, boundsOfPath } from './geo'
+import { haversine, pathLength, pointAlongPath, chaikinSmooth, resampleByDistance, bearingBetween, bearingAt, lerpAngle, boundsOfPath, cumulativeLengths } from './geo'
 
 describe('haversine', () => {
   it('1 度纬度约 111km', () => {
@@ -132,6 +132,38 @@ describe('lerpAngle', () => {
     expect(lerpAngle(350, 10, 1)).toBeCloseTo(10, 6)
     expect(lerpAngle(350, 10, 2)).toBeCloseTo(10, 6)
     expect(lerpAngle(0, 270, 0.5)).toBeCloseTo(315, 6) // 最短弧向负方向
+  })
+})
+
+describe('cumulativeLengths + 二分定位', () => {
+  it('cum 表首 0 末总长、单调不减', () => {
+    const path = [[0, 0], [0.5, 0.2], [1, 0]]
+    const cum = cumulativeLengths(path)
+    expect(cum).toHaveLength(3)
+    expect(cum[0]).toBe(0)
+    expect(cum[2]).toBeCloseTo(pathLength(path), 6)
+    expect(cum[1]).toBeGreaterThan(0)
+  })
+  it('pointAlongPath 带 cum 与不带结果一致', () => {
+    const path = [[0, 0], [0.3, 0.1], [0.7, -0.2], [1, 0]]
+    const cum = cumulativeLengths(path)
+    for (const f of [0, 0.1, 0.33, 0.5, 0.77, 1]) {
+      const a = pointAlongPath(path, f)
+      const b = pointAlongPath(path, f, cum)
+      expect(b[0]).toBeCloseTo(a[0], 9)
+      expect(b[1]).toBeCloseTo(a[1], 9)
+    }
+  })
+  it('bearingAt 带 cum 与不带结果一致', () => {
+    const path = [[0, 0], [0.3, 0.1], [0.7, -0.2], [1, 0]]
+    const cum = cumulativeLengths(path)
+    for (const f of [0, 0.5, 1]) {
+      expect(bearingAt(path, f, 2000, cum)).toBeCloseTo(bearingAt(path, f), 6)
+    }
+  })
+  it('退化：短路径 cum=[0]', () => {
+    expect(cumulativeLengths([[1, 2]])).toEqual([0])
+    expect(cumulativeLengths(null)).toEqual([0])
   })
 })
 
