@@ -241,6 +241,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
 
   let carMarker = null
   let carApi = null
+  let carFaceLeft = false
   function setCar(car) {
     if (!map) return
     if (!car) {
@@ -248,6 +249,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
         carMarker.remove()
         carMarker = null
         carApi = null
+        carFaceLeft = false
       }
       return
     }
@@ -260,8 +262,15 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     } else {
       carMarker.setLngLat([car.lng, car.lat])
     }
-    // 车头默认朝右（东）；行进方位在西半侧（180°~360°）时翻转
-    carApi.setFlip(car.headingDeg > 180)
+    // 车头默认朝右（东）、西半侧(180~360)朝左；带 ±10° 迟滞——
+    // 南北向道路 heading 会在 0°/360° 与 180° 边界附近摆动，无迟滞会每帧左右闪烁
+    const h = ((car.headingDeg % 360) + 360) % 360
+    if (carFaceLeft) {
+      if (h > 10 && h < 170) carFaceLeft = false // 明确进入东半侧才转回
+    } else if (h > 190 && h < 350) {
+      carFaceLeft = true // 明确进入西半侧才翻转
+    }
+    carApi.setFlip(carFaceLeft)
   }
 
   // 经纬度 → 舞台容器内像素坐标（引线/脉冲标记锚点用）；未建图返回 null
