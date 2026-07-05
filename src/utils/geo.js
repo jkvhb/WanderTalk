@@ -100,6 +100,23 @@ export function chaikinSmooth(path, iterations = 2) {
   return pts === path ? [...path] : pts
 }
 
+// 折线+附加点的经纬度包围盒 [[minLng,minLat],[maxLng,maxLat]]；无任何点返回 null
+export function boundsOfPath(path, extraPoints = []) {
+  const pts = [...(path || []), ...(extraPoints || [])]
+  if (!pts.length) return null
+  let minLng = Infinity
+  let minLat = Infinity
+  let maxLng = -Infinity
+  let maxLat = -Infinity
+  for (const [lng, lat] of pts) {
+    if (lng < minLng) minLng = lng
+    if (lng > maxLng) maxLng = lng
+    if (lat < minLat) minLat = lat
+    if (lat > maxLat) maxLat = lat
+  }
+  return [[minLng, minLat], [maxLng, maxLat]]
+}
+
 // 按弧长比例 frac∈[0,1] 在折线上线性插值取点，返回 [lng,lat]
 export function pointAlongPath(path, frac) {
   if (!path || path.length === 0) return null

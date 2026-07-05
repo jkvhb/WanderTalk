@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { haversine, pathLength, pointAlongPath, chaikinSmooth, resampleByDistance, bearingBetween, bearingAt, lerpAngle } from './geo'
+import { haversine, pathLength, pointAlongPath, chaikinSmooth, resampleByDistance, bearingBetween, bearingAt, lerpAngle, boundsOfPath } from './geo'
 
 describe('haversine', () => {
   it('1 度纬度约 111km', () => {
@@ -132,5 +132,19 @@ describe('lerpAngle', () => {
     expect(lerpAngle(350, 10, 1)).toBeCloseTo(10, 6)
     expect(lerpAngle(350, 10, 2)).toBeCloseTo(10, 6)
     expect(lerpAngle(0, 270, 0.5)).toBeCloseTo(315, 6) // 最短弧向负方向
+  })
+})
+
+describe('boundsOfPath', () => {
+  it('折线包围盒 [[minLng,minLat],[maxLng,maxLat]]', () => {
+    expect(boundsOfPath([[0, 0], [2, 1], [1, -1]])).toEqual([[0, -1], [2, 1]])
+  })
+  it('extraPoints 参与包围盒', () => {
+    expect(boundsOfPath([[0, 0]], [[5, 5], [-1, 2]])).toEqual([[-1, 0], [5, 5]])
+  })
+  it('空折线仅 extraPoints 也可；全空返回 null', () => {
+    expect(boundsOfPath([], [[3, 4]])).toEqual([[3, 4], [3, 4]])
+    expect(boundsOfPath([], [])).toBeNull()
+    expect(boundsOfPath(null)).toBeNull()
   })
 })
