@@ -17,51 +17,19 @@ let mapAdapter = null
 let audioEl = null
 
 const sample = computed(() => flight.sample)
-const card = computed(() => sample.value?.card)
 const overlay = computed(() => sample.value?.overlay)
 const altitude = computed(() => sample.value?.altitude)
-const showAltitude = computed(
-  () => altitude.value != null && ['fly', 'dwell'].includes(sample.value?.phase),
-)
+// 海拔 HUD 只在旅行段显示（到站后展示页自带海拔徽标，避免重复）
+const showAltitude = computed(() => altitude.value != null && sample.value?.phase === 'fly')
 
-// 当前卡片对应的节点（取名/地址/备注）
+const stageEl = ref(null)
+
+// 当前展示页对应的节点（取名/地址/备注）
 const activeNode = computed(() => {
-  const i = card.value?.stopIndex
+  const i = showcase.value?.stopIndex
   if (i == null || i < 0) return null
   return flight.timeline?.stops?.[i]?.node ?? null
 })
-
-// —— 节点特写锚点：dwell 时把节点经纬度投到舞台像素，画引线 + 脉冲标记 ——
-const stageEl = ref(null)
-const panelEl = ref(null)
-const anchor = ref(null) // { x1,y1 面板右缘中点, x2,y2 节点 } 舞台内像素
-
-function updateAnchor() {
-  const node = activeNode.value
-  const stage = stageEl.value?.getBoundingClientRect()
-  if (!node || !card.value?.visible || !mapAdapter?.project || !stage) {
-    anchor.value = null
-    return
-  }
-  // map.project 返回相对地图画布的 CSS 像素；mapEl 以 w-full h-full 与舞台完全重合、无偏移，
-  // 所以投影坐标可直接当舞台内 left/top 用。布局若改动需重审这一假设。
-  // 标记锚在驾车路线的终点而非 POI 坐标：POI 常在街区内、离公路几十上百米，
-  // 画在路线上才符合"节点在路上"的直觉（首节点无路线时退回 POI 坐标）。
-  const route = flight.timeline?.stops?.[card.value.stopIndex]?.routeToHere
-  const lngLat = route?.length ? route[route.length - 1] : [node.lng, node.lat]
-  const pt = mapAdapter.project(lngLat)
-  const panel = panelEl.value?.getBoundingClientRect()
-  if (!pt || !panel) {
-    anchor.value = null // 面板未挂载时宁可不画，也不画一条端点错误的线
-    return
-  }
-  anchor.value = {
-    x2: pt.x,
-    y2: pt.y,
-    x1: panel.right - stage.left,
-    y1: panel.top + panel.height / 2 - stage.top,
-  }
-}
 
 function fmt(sec) {
   if (!Number.isFinite(sec)) return '0:00'
@@ -70,14 +38,53 @@ function fmt(sec) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-// —— 图片轮播：卡片切换节点时加载该节点图片 Blob → objectURL ——
+// —— 圆形揭幕：圆心=到站点在当前相机下的屏幕投影，最大半径=舞台对角线 ——
+// 注意：必须声明在下方 imgUrls watch 之前——watch 创建时会同步执行 getter，
+// 其 getter 引用 showcase，若 showcase 声明在后面会触发 TDZ 报错（4b 踩过的坑）。
+const showcase = computed(() => sample.value?.showcase ?? null)
+const wipeOrigin = ref({ x: 0, y: 0, maxR: 0 })
+
+function updateWipeOrigin() {
+  const stage = stageEl.value?.getBoundingClientRect()
+  const i = showcase.value?.stopIndex
+  if (!stage || i == null || i < 0 || !mapAdapter?.project) return
+  const stop = flight.timeline?.stops?.[i]
+  if (!stop) return
+  // 圆心锚路线终点（驾车路线吸附道路）；首节点无路线退回节点坐标
+  const route = stop.routeToHere
+  const lngLat = route?.length ? route[route.length - 1] : [stop.node.lng, stop.node.lat]
+  const pt = mapAdapter.project(lngLat)
+  if (!pt) return
+  wipeOrigin.value = { x: pt.x, y: pt.y, maxR: Math.hypot(stage.width, stage.height) }
+}
+// 两个时机重算圆心：进入新 dwell（扩圆）；相机暗中换场后（收圆要朝新总览里的同一节点收拢）
+watch(
+  () => [showcase.value?.stopIndex, sample.value?.camera?.sceneId],
+  async () => {
+    await nextTick()
+    updateWipeOrigin()
+  },
+)
+
+const wipeStyle = computed(() => {
+  const sc = showcase.value
+  if (!sc) return null
+  const { x, y, maxR } = wipeOrigin.value
+  const r = Math.max(0, sc.revealFrac) * (maxR || 0)
+  return { clipPath: `circle(${r.toFixed(1)}px at ${x}px ${y}px)` }
+})
+
+// 旁白正文剥掉 SSML 标签后展示（<break/> <emphasis> 等来自 Phase 3 文案）
+const plainNarration = computed(() => (activeNode.value?.narration || '').replace(/<[^>]+>/g, '').trim())
+
+// —— 图片轮播：展示页切换节点时加载该节点图片 Blob → objectURL ——
 const imgUrls = ref([])
 function revokeImgs() {
   imgUrls.value.forEach((u) => URL.revokeObjectURL(u))
   imgUrls.value = []
 }
 watch(
-  () => card.value?.stopIndex,
+  () => showcase.value?.stopIndex,
   async (idx) => {
     revokeImgs()
     if (idx == null || idx < 0) return
@@ -90,17 +97,7 @@ watch(
     imgUrls.value = urls
   },
 )
-const currentImg = computed(() => imgUrls.value[card.value?.imageIndex ?? 0] || null)
-
-// dwell 相机静止：进入/切换停留时算一次即可；窗口尺寸变了再算。
-// 注意：必须声明在 imgUrls 之后——watch 创建时会同步执行 getter，提前引用会触发 TDZ 报错。
-watch(
-  () => [sample.value?.phase, card.value?.stopIndex, imgUrls.value.length],
-  async () => {
-    await nextTick()
-    updateAnchor()
-  },
-)
+const currentImg = computed(() => imgUrls.value[showcase.value?.imageIndex ?? 0] || null)
 
 function stopAudioEl() {
   if (audioEl) {
@@ -116,6 +113,8 @@ function stopAudioEl() {
 function buildAdapter() {
   return {
     setCamera: (cam) => mapAdapter?.setCamera(cam),
+    setCar: (car) => mapAdapter?.setCar?.(car),
+    setProgress: (p) => mapAdapter?.setProgress?.(p),
     playAudio: (blob, offset) => {
       stopAudioEl()
       audioEl = new Audio(URL.createObjectURL(blob))
@@ -146,16 +145,16 @@ onMounted(async () => {
       mapError.value = m
     },
   })
-  // 画全程路线
-  mapAdapter.drawRoute(flight.timeline.stops.map((s) => s.routeToHere).filter((p) => p.length > 1))
+  // 画全程路线：不过滤，leg 下标须与 stops 下标对齐（adapter 自行处理 null/短段）
+  mapAdapter.drawRoute(flight.timeline.stops.map((s) => s.routeToHere))
   flight.attach(buildAdapter())
   flight.seek(0)
-  window.addEventListener('resize', updateAnchor)
+  window.addEventListener('resize', updateWipeOrigin)
   state.value = 'ready'
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', updateAnchor)
+  window.removeEventListener('resize', updateWipeOrigin)
   flight.pause()
   flight.detach()
   stopAudioEl()
@@ -223,41 +222,41 @@ function toggle() {
           海拔 <span class="font-semibold">{{ altitude }}</span> m
         </div>
 
-        <!-- 引线：照片面板右缘中点 → 节点（写实底图上的轻量叠加）-->
-        <svg v-if="anchor" class="absolute inset-0 w-full h-full pointer-events-none">
-          <line :x1="anchor.x1" :y1="anchor.y1" :x2="anchor.x2" :y2="anchor.y2"
-            stroke="white" stroke-opacity="0.55" stroke-width="1.5" />
-          <circle :cx="anchor.x1" :cy="anchor.y1" r="3" fill="white" fill-opacity="0.7" />
-        </svg>
+        <!-- 节点展示页：圆形揭幕（clip-path 由 revealFrac 逐帧驱动，圆心=到站点投影） -->
+        <div v-if="showcase && wipeStyle" class="absolute inset-0 bg-black overflow-hidden" :style="wipeStyle">
+          <img v-if="currentImg" :src="currentImg" class="absolute inset-0 w-full h-full object-cover" alt="" />
+          <div class="absolute inset-0 bg-black/40"></div>
 
-        <!-- 节点脉冲标记 -->
-        <div v-if="anchor" :style="{ left: anchor.x2 + 'px', top: anchor.y2 + 'px', transform: 'translate(-50%, -50%)' }"
-          class="absolute pointer-events-none">
-          <span class="absolute -left-2.5 -top-2.5 w-5 h-5 rounded-full bg-teal-300/50 animate-ping"></span>
-          <span class="relative block w-2.5 h-2.5 rounded-full bg-teal-200 ring-2 ring-white/80"></span>
-        </div>
-
-        <!-- 左侧照片面板：实景照片（Ken Burns）+ 节点名/海拔/地址/备注 -->
-        <div
-          v-if="card?.visible && activeNode"
-          ref="panelEl"
-          class="absolute left-4 top-1/2 -translate-y-1/2 w-[30%] max-w-sm rounded-xl overflow-hidden bg-black/55 text-white shadow-lg backdrop-blur-sm"
-        >
-          <div v-if="currentImg" class="relative h-44 overflow-hidden">
-            <img
-              :key="card.stopIndex + '-' + card.imageIndex"
-              :src="currentImg"
-              class="w-full h-full object-cover"
-              alt=""
-            />
+          <div class="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 text-white/90 text-xs">
+            <span class="w-2 h-2 rounded-full bg-teal-300"></span>
+            正在讲解 · 第 {{ (showcase.stopIndex ?? 0) + 1 }}/{{ flight.timeline?.stops?.length || 0 }} 站
           </div>
-          <div class="p-3">
-            <div class="flex items-baseline gap-2">
-              <h3 class="text-lg font-semibold">{{ activeNode.name }}</h3>
-              <span v-if="activeNode.altitude != null" class="text-xs text-white/70">{{ activeNode.altitude }} m</span>
+
+          <div v-if="activeNode" class="absolute left-8 bottom-16 right-40 text-white">
+            <div class="flex items-baseline gap-3 flex-wrap">
+              <h2 class="text-3xl font-bold drop-shadow">{{ activeNode.name }}</h2>
+              <span v-if="activeNode.altitude != null" class="px-3 py-1 rounded-full bg-teal-700/90 text-teal-50 text-sm">
+                海拔 {{ activeNode.altitude }} m
+              </span>
             </div>
-            <p v-if="activeNode.address" class="text-xs text-white/70 mt-0.5">{{ activeNode.address }}</p>
-            <p v-if="activeNode.note" class="text-sm text-white/90 mt-1">{{ activeNode.note }}</p>
+            <p v-if="activeNode.address" class="mt-1 text-sm text-white/70">{{ activeNode.address }}</p>
+            <p v-if="activeNode.note" class="mt-2 text-[15px] text-white/90 max-w-2xl">{{ activeNode.note }}</p>
+            <p
+              v-if="plainNarration"
+              class="mt-3 text-sm text-white/80 max-w-3xl"
+              style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden"
+            >{{ plainNarration }}</p>
+          </div>
+
+          <div v-if="imgUrls.length > 1" class="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
+            <div
+              v-for="(u, idx) in imgUrls"
+              :key="u"
+              class="w-20 h-14 rounded-md overflow-hidden border-2"
+              :class="idx === (showcase.imageIndex ?? 0) ? 'border-teal-300' : 'border-white/25'"
+            >
+              <img :src="u" class="w-full h-full object-cover" alt="" />
+            </div>
           </div>
         </div>
 
