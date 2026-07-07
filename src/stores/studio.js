@@ -3,15 +3,28 @@ import { ref } from 'vue'
 import { useTripStore } from './trip'
 import { synthesize } from '../composables/useTts'
 import { generateNarrationDraft } from '../composables/useNarration'
+import { generateImageQueries, searchPixabayImages, fetchPixabayImageBlob } from '../composables/useImages'
+import { pickImages } from '../utils/imageMatch'
+import { downscaleImage, newImageId } from '../utils/image'
+import { putImage } from '../utils/db'
 
 // 任务进度状态挂在 store（而非组件），切换视图时任务不中断、进度可续显。
 function emptyJob() {
   return { running: false, done: 0, total: 0, error: '', finishedAt: null }
 }
 
+// imageJob 比通用 job 多 skipped（全部检索词落空的节点数）与 current（正在处理的节点名）
+function emptyImageJob() {
+  return { running: false, done: 0, total: 0, skipped: 0, current: '', error: '', finishedAt: null }
+}
+
+const IMAGES_PER_NODE = 3
+const MATCH_THRESHOLD = 0.15
+
 export const useStudioStore = defineStore('studio', () => {
   const synthJob = ref(emptyJob())
   const aiJob = ref(emptyJob())
+  const imageJob = ref(emptyImageJob())
 
   // —— 试听播放器（全局单例：播新的自动停旧的，可手动暂停）——
   const playingKey = ref('')
@@ -68,6 +81,72 @@ export const useStudioStore = defineStore('studio', () => {
     return out
   }
 
+  function nodesNeedingImages(plan) {
+    const out = []
+    for (const day of plan.days) {
+      day.waypoints.forEach((w, i) => {
+        if (!w.images?.length) {
+          out.push({ dayNumber: day.dayNumber, index: i, name: w.name, address: w.address, note: w.note })
+        }
+      })
+    }
+    return out
+  }
+
+  // AI 自动配图：只填无图节点，每点最多 3 张（Pixabay，需下载入库、禁止热链）。
+  // 幂等——重跑仍只处理"仍无图"的节点；单节点全部检索词落空则跳过（保持文字版）。
+  async function runImageAutoFillAll(apiKey) {
+    const trip = useTripStore()
+    if (!trip.plan || imageJob.value.running) return
+    const nodes = nodesNeedingImages(trip.plan)
+    imageJob.value = { ...emptyImageJob(), running: true, total: nodes.length }
+    try {
+      if (nodes.length) {
+        // 一次批量拿全部节点的检索词/互证关键词
+        const queryResults = await generateImageQueries(nodes, { apiKey })
+        for (let i = 0; i < nodes.length; i++) {
+          const node = nodes[i]
+          imageJob.value.current = node.name
+          const q = queryResults?.find((r) => r.index === i) || queryResults?.[i]
+          const queries = q?.queries || []
+          const keywords = q?.keywords || []
+
+          let picked = []
+          for (const query of queries) {
+            const hits = await searchPixabayImages(query, 'zh')
+            picked = pickImages(hits, keywords, IMAGES_PER_NODE, MATCH_THRESHOLD)
+            if (picked.length) break // 命中即止，不再尝试后续降级检索词
+          }
+
+          if (!picked.length) {
+            imageJob.value.skipped++
+            continue
+          }
+
+          for (const hit of picked) {
+            const blob = await fetchPixabayImageBlob(hit.largeImageURL || hit.webformatURL)
+            const { blob: small, mime, w, h } = await downscaleImage(blob)
+            const id = newImageId()
+            await putImage(id, {
+              blob: small,
+              mime,
+              w,
+              h,
+              source: { provider: 'pixabay', id: hit.id, pageURL: hit.pageURL },
+            })
+            trip.addImage(node.dayNumber, node.index, id)
+          }
+          imageJob.value.done++
+        }
+      }
+      imageJob.value.finishedAt = Date.now()
+    } catch (e) {
+      imageJob.value.error = e.message
+    } finally {
+      imageJob.value.running = false
+    }
+  }
+
   // 批量合成所有有旁白的节点（已缓存的秒回）
   async function runSynthAll() {
     const trip = useTripStore()
@@ -121,5 +200,15 @@ export const useStudioStore = defineStore('studio', () => {
     }
   }
 
-  return { synthJob, aiJob, runSynthAll, runAiDraftAll, playingKey, play, stopAudio }
+  return {
+    synthJob,
+    aiJob,
+    imageJob,
+    runSynthAll,
+    runAiDraftAll,
+    runImageAutoFillAll,
+    playingKey,
+    play,
+    stopAudio,
+  }
 })
