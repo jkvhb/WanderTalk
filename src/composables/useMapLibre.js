@@ -128,7 +128,6 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
 
   let lastBoundsSceneId = null
   let lastBoundsCam = null
-  const CAM_EASE_MS = 1200 // 场景切换的相机平移滑动时长（2026-07-05 手测修订：暗切改可见滑动）
   function applyCamera(cam, { animate = true } = {}) {
     if (!map) return
     if (cam?.kind === 'bounds') {
@@ -151,9 +150,11 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
         bearing: cam.bearing ?? 0,
         padding: { top: 0, bottom: 0, left: 0, right: 0 },
       }
-      // 首个相机/resize 重取景直接跳；场景切换用 easeTo——观众要看得见镜头从上一段滑到下一段
-      if (animate && lastBoundsCam) {
-        map.easeTo({ ...target, duration: CAM_EASE_MS, essential: true })
+      // 滑动时长由时间轴按场景给出（fly=min(3s, 段时长×70%)、outro=3s、intro/dwell 缺省瞬时）；
+      // 首个相机/resize 重取景一律直接跳
+      const easeMs = cam.easeMs ?? 0
+      if (animate && lastBoundsCam && easeMs > 0) {
+        map.easeTo({ ...target, duration: easeMs, essential: true })
       } else {
         map.jumpTo(target)
       }

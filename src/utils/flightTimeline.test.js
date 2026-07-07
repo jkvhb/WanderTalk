@@ -115,6 +115,8 @@ describe('sampleAt · 契约 v2', () => {
     expect(s.progress.frac).toBeCloseTo(0.5, 6) // 独立对齐 easeInOutCubic(0.5)=0.5，不引用 car.frac
     expect(s.showcase).toBeNull()
     expect(s.altitude).toBe(150) // round(100 + 100*0.5)
+    // 镜头滑动时长 = min(上限 3s, 段时长×70%)——短段防止车到站了镜头还在飘
+    expect(s.camera.easeMs).toBe(Math.min(3000, Math.round(flyDur * 700)))
   })
 
   it('dwell 揭幕曲线：两端 0→1→0，盖住期间恒 1', () => {
@@ -153,6 +155,8 @@ describe('sampleAt · 契约 v2', () => {
     expect(s.overlay).toEqual({ kind: 'outro', lines: ['L1'] })
     expect(s.progress).toEqual({ legIndex: 1, frac: 1 })
     expect(s.car).toBeNull()
+    expect(s.camera.easeMs).toBe(3000) // 片尾缓缓拉远到全程
+    expect(sampleAt(tl, 1).camera.easeMs).toBeUndefined() // intro/dwell 相机无滑动（seek 应瞬时定位）
   })
 
   it('t 越界被夹住', () => {

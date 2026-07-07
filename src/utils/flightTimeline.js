@@ -9,6 +9,8 @@ const DEFAULTS = {
   wipeDuration: 0.7, // 圆形揭幕单程时长（dwell 两端各一次）
   overviewPitch: 25, // 总览俯仰角（用户拍板"接近俯视"，常量可调）
   boundsPadFrac: 0.15, // fitBounds 外扩比例（相对容器短边），给 pitch 形变留余量
+  camEaseMaxMs: 3000, // 段间镜头滑动时长上限（用户手测定 3s）
+  camEaseShare: 0.7, // 滑动最多占场景时长的比例——短段防止车到站了镜头还在飘
   intro: { title: '', subtitle: '' },
   outro: { lines: [] },
 }
@@ -77,8 +79,9 @@ function sceneAt(timeline, tc) {
 
 const NO_AUDIO = { stopIndex: -1, playing: false, offset: 0 }
 
-// 包围盒式相机：adapter 按 sceneId 记忆化 cameraForBounds，场景内相机静止（零抖动的根）
-function boundsCamera(entry, o) {
+// 包围盒式相机：adapter 按 sceneId 记忆化 cameraForBounds，场景内相机静止（零抖动的根）。
+// easeMs>0 时场景切换用 easeTo 可见滑动；缺省=瞬时定位（intro/dwell，seek 不拖泥带水）
+function boundsCamera(entry, o, easeMs) {
   return {
     kind: 'bounds',
     sceneId: entry.sceneId,
@@ -86,6 +89,7 @@ function boundsCamera(entry, o) {
     pitch: o.overviewPitch,
     bearing: 0,
     padFrac: o.boundsPadFrac,
+    ...(easeMs != null ? { easeMs } : {}),
   }
 }
 
@@ -114,7 +118,7 @@ export function sampleAt(timeline, t) {
   if (scene.kind === 'outro') {
     return {
       phase: 'outro', t: tc,
-      camera: boundsCamera(ALL, o),
+      camera: boundsCamera(ALL, o, o.camEaseMaxMs), // 片尾缓缓拉远到全程
       car: null, showcase: null,
       progress: { legIndex: timeline.stops.length - 1, frac: 1 }, // 全程走完的上色态（seek 幂等）
       activeStopIndex: -1, audio: { ...NO_AUDIO },
@@ -136,7 +140,11 @@ export function sampleAt(timeline, t) {
         : node.altitude ?? null
     return {
       phase: 'fly', t: tc,
-      camera: boundsCamera({ sceneId: `leg-${i}`, bounds: scene.legBounds }, o),
+      camera: boundsCamera(
+        { sceneId: `leg-${i}`, bounds: scene.legBounds },
+        o,
+        Math.min(o.camEaseMaxMs, Math.round(scene.duration * 1000 * o.camEaseShare)),
+      ),
       car: { lng: pos[0], lat: pos[1], headingDeg: bearingAt(scene.path, eased, 500, scene.cum), frac: eased },
       progress: { legIndex: i, frac: eased },
       showcase: null,

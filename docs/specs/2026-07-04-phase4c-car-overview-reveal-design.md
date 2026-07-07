@@ -34,7 +34,7 @@ Phase 4b 的"镜头朝行进方向沿路飞"在川藏线上**结构性失败**�
 1. 车到站 → **圆形揭幕**：展示页以"路线终点的屏幕坐标"为圆心，`clip-path: circle(r at x y)` 半径 0→全屏（`wipeDuration` 默认 0.7s，easeInOutCubic）。
 2. 全屏**展示页**（MVP）：全屏实景照片（`card.imageIndex` 轮播沿用、无 Ken Burns）+ 自动压暗层；左下标题+海拔 chip+地址+备注；底部旁白文本带（静态截断 2 行，逐句同步后续做）；右侧缩略图列；左上"正在讲解 · 第 x/n 站"。**无照片节点**：深色底纯文字排版（同布局去图）。
 3. **语音窗口后移**：dwell 时长 = `wipeDuration + audioDuration + dwellPadding + wipeDuration`；音频在 `[wipeDuration, wipeDuration+audioDuration]` 窗口内播放（`audio.offset = tc - start - wipeDuration`，窗口外 playing=false）。
-4. **相机整段不动 + 段间可见滑动**（2026-07-05 手测修订，取代原"暗中换场"设计——用户实测暗切"折痕突兀"，镜头运动必须看得见）：dwell 全程相机保持进场画面（有来路的节点=当前段包围盒；**首节点=全程包围盒**，与 intro 连续），收圆露出的仍是进场画面（车停在站点）；下一场景开始时 sceneId 变化触发 adapter 的 **`easeTo`（约 1.2s）**，镜头平滑滑动到新一段总览——车起步、镜头跟着滑走。末站讲完后 outro 触发滑动拉远到全程总览。
+4. **相机整段不动 + 段间可见滑动**（2026-07-05 手测修订，取代原"暗中换场"设计——用户实测暗切"折痕突兀"，镜头运动必须看得见）：dwell 全程相机保持进场画面（有来路的节点=当前段包围盒；**首节点=全程包围盒**，与 intro 连续），收圆露出的仍是进场画面（车停在站点）；下一场景开始时 sceneId 变化触发 adapter 的 **`easeTo`（时长=min(3s, 段时长×70%)，用户定 3s 上限；短段自动缩短防止车到站镜头还在飘）**，镜头平滑滑动到新一段总览——车起步、镜头跟着滑走。末站讲完后 outro 以 3s 滑动拉远到全程总览。intro/dwell 相机无 easeMs（seek 瞬时定位）。
 5. 揭幕圆心 = 该节点路线终点的屏幕投影；首节点无路线时退回节点坐标（与 4b 锚点规则一致）。
 6. `revealFrac = edgeWindow(p, wipeDuration/duration)`（复用现有窗函数）。
 7. 已知取舍：**连续无来路的讲解点**之间（无 fly 段），相机在揭幕盖住时切到全程总览并保持到下一个有路段——确定性优先；若实际观感突兀，后续可改为相邻两点的局部包围盒。
@@ -49,7 +49,7 @@ showcase:null | { stopIndex, imageIndex, revealFrac }    // 仅 dwell（替代�
 audio / altitude / overlay / phase / activeStopIndex 语义不变（audio 窗口后移见上）
 ```
 
-- **adapter 扩展**：`setCamera` 识别 bounds 式相机——按 `sceneId` 记忆化 `map.cameraForBounds(bounds,{padding})`；**首个相机/resize 重取景用 `jumpTo`，场景切换用 `easeTo`（约 1.2s 可见滑动）**；新增 `setCar(car|null)`、`setProgress(progress|null)`。
+- **adapter 扩展**：`setCamera` 识别 bounds 式相机——按 `sceneId` 记忆化 `map.cameraForBounds(bounds,{padding})`；**首个相机/resize 重取景用 `jumpTo`，场景切换按相机自带 `easeMs` 决定 easeTo/跳转**；新增 `setCar(car|null)`、`setProgress(progress|null)`。
 - **store 微改**（4b 是零改动，本期放开）：`applySample` 增加 `adapter.setCar?.(s.car)`、`adapter.setProgress?.(s.progress)` 两行可选链透传，store 仍无语义知识；补两行单测。
 
 ## 移除 / 保留（相对 4b）
