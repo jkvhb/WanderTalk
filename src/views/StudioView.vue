@@ -1,11 +1,13 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, defineAsyncComponent } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useTripStore } from '../stores/trip'
 import { useSettingsStore } from '../stores/settings'
 import { useStudioStore } from '../stores/studio'
 import { VOICES } from '../composables/useTts'
 import NarrationDayCard from '../components/NarrationDayCard.vue'
+// 懒加载：预览时才拉取 MapLibre（~400KB），首屏不背这个包
+const FlightPlayer = defineAsyncComponent(() => import('../components/FlightPlayer.vue'))
 
 const trip = useTripStore()
 const settings = useSettingsStore()
@@ -35,6 +37,16 @@ function aiAll() {
 function synthAll() {
   uiError.value = ''
   studio.runSynthAll()
+}
+
+const showPlayer = ref(false)
+function startPreview() {
+  uiError.value = ''
+  if (narratedCount.value === 0) {
+    uiError.value = '请先撰写并「批量合成」旁白，再预览飞行动画'
+    return
+  }
+  showPlayer.value = true
 }
 </script>
 
@@ -127,8 +139,16 @@ function synthAll() {
       </div>
     </aside>
 
-    <div class="flex-1 flex items-center justify-center text-gray-300 text-sm p-6 text-center">
-      旁白写好并合成后，Phase 4 将在这里用音频时长驱动飞行动画预览。
+    <div class="flex-1 relative">
+      <FlightPlayer v-if="showPlayer" @close="showPlayer = false" />
+      <div v-else class="h-full flex flex-col items-center justify-center gap-3 text-gray-400 text-sm p-6 text-center">
+        <p>旁白写好并「批量合成」后，预览与语音同步的飞行动画。</p>
+        <button
+          @click="startPreview"
+          class="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 transition"
+        >▶ 预览飞行动画</button>
+        <p class="text-xs text-gray-300">需先在「设置」配置天地图 key</p>
+      </div>
     </div>
   </div>
 </template>

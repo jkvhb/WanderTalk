@@ -239,3 +239,41 @@ describe('trip store 编辑', () => {
     expect(t.plan.days[0].waypoints[0].prevNarration).toBe('新稿')
   })
 })
+
+describe('trip store 节点 note/images', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('归一化为每个节点补 note="" 与 images=[]', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    const wp = t.plan.days[0].waypoints[0]
+    expect(wp.note).toBe('')
+    expect(wp.images).toEqual([])
+  })
+
+  it('setNote 设置备注', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.setNote(1, 0, '  山路十八弯  ')
+    expect(t.plan.days[0].waypoints[0].note).toBe('山路十八弯')
+  })
+
+  it('addImage / removeImage / setImages', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.addImage(1, 0, 'img_a')
+    t.addImage(1, 0, 'img_b')
+    expect(t.plan.days[0].waypoints[0].images).toEqual(['img_a', 'img_b'])
+    t.removeImage(1, 0, 'img_a')
+    expect(t.plan.days[0].waypoints[0].images).toEqual(['img_b'])
+    t.setImages(1, 0, ['img_b', 'img_c'])
+    expect(t.plan.days[0].waypoints[0].images).toEqual(['img_b', 'img_c'])
+  })
+
+  it('importJson 不丢 note/images（归一化补齐）', () => {
+    const t = useTripStore()
+    t.importJson(JSON.stringify({ name: 'x', days: [{ waypoints: [{ name: 'A', lng: 1, lat: 2 }] }] }))
+    expect(t.plan.days[0].waypoints[0].images).toEqual([])
+    expect(t.plan.days[0].waypoints[0].note).toBe('')
+  })
+})

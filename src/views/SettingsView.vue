@@ -6,12 +6,14 @@ const settings = useSettingsStore()
 const amapInput = ref(settings.amapKey)
 const amapSecurityInput = ref(settings.amapSecurityCode)
 const llmInput = ref(settings.llmKey)
+const tiandituInput = ref(settings.tiandituKey)
 const saved = ref(false)
 
 function save() {
   settings.setAmapKey(amapInput.value)
   settings.setAmapSecurityCode(amapSecurityInput.value)
   settings.setLlmKey(llmInput.value)
+  settings.setTiandituKey(tiandituInput.value)
   saved.value = true
   setTimeout(() => (saved.value = false), 2000)
 }
@@ -56,6 +58,19 @@ function save() {
           placeholder="在 platform.deepseek.com 申请的 API Key"
           class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-accent focus:outline-none text-sm"
         />
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium mb-1">天地图 API Key（飞行动画底图）</label>
+        <input
+          v-model="tiandituInput"
+          type="text"
+          placeholder="在天地图开放平台申请的浏览器端 tk"
+          class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-accent focus:outline-none text-sm"
+        />
+        <p class="text-xs text-gray-400 mt-1">
+          前往 <a href="https://console.tianditu.gov.cn/" target="_blank" class="text-accent">天地图开放平台</a> 申请「浏览器端」key；飞行动画底图（WGS-84，与路线零偏移）使用它。
+        </p>
       </div>
 
       <div class="flex items-center gap-3">

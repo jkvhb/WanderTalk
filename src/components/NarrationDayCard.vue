@@ -1,10 +1,12 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import { useTripStore } from '../stores/trip'
 import { synthesize } from '../composables/useTts'
 import { generateNarrationDraft } from '../composables/useNarration'
 import { useSettingsStore } from '../stores/settings'
 import { useStudioStore } from '../stores/studio'
+import { downscaleImage, newImageId } from '../utils/image'
+import { putImage, getImage, deleteImage } from '../utils/db'
 
 const props = defineProps({
   day: { type: Object, required: true },
@@ -77,6 +79,47 @@ async function aiDraft(i) {
     busy.value = ''
   }
 }
+
+// —— 节点图片：缩略图 objectURL 缓存（key=imageId）——
+const thumbs = reactive({})
+async function ensureThumb(id) {
+  if (thumbs[id]) return
+  const e = await getImage(id)
+  if (e?.blob) thumbs[id] = URL.createObjectURL(e.blob)
+}
+function loadThumbs() {
+  for (const w of props.day.waypoints) for (const id of w.images || []) ensureThumb(id)
+}
+loadThumbs()
+
+async function onUpload(i, ev) {
+  const files = Array.from(ev.target.files || [])
+  ev.target.value = '' // 允许重复选同一文件
+  error.value = ''
+  busy.value = `${props.day.dayNumber}-${i}`
+  try {
+    for (const file of files) {
+      const { blob, mime, w, h } = await downscaleImage(file)
+      const id = newImageId()
+      await putImage(id, { blob, mime, w, h })
+      trip.addImage(props.day.dayNumber, i, id)
+      await ensureThumb(id)
+    }
+  } catch (e) {
+    error.value = '图片处理失败：' + e.message
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function onRemoveImage(i, id) {
+  trip.removeImage(props.day.dayNumber, i, id)
+  await deleteImage(id)
+  if (thumbs[id]) {
+    URL.revokeObjectURL(thumbs[id])
+    delete thumbs[id]
+  }
+}
 </script>
 
 <template>
@@ -123,6 +166,29 @@ async function aiDraft(i) {
           placeholder="为该节点写讲解旁白，可用 <break/> <emphasis> SSML…"
           class="w-full px-2 py-1 rounded border border-gray-200 focus:border-accent focus:outline-none text-xs resize-y"
         ></textarea>
+        <textarea
+          :value="w.note"
+          @change="trip.setNote(day.dayNumber, i, $event.target.value)"
+          rows="1"
+          placeholder="节点备注（信息卡显示，可选）"
+          class="w-full px-2 py-1 rounded border border-gray-100 focus:border-accent focus:outline-none text-[11px] resize-y text-gray-500"
+        ></textarea>
+
+        <div class="flex flex-wrap items-center gap-1.5">
+          <div v-for="id in w.images" :key="id" class="relative group">
+            <img v-if="thumbs[id]" :src="thumbs[id]" class="w-12 h-12 object-cover rounded border border-gray-200" alt="" />
+            <div v-else class="w-12 h-12 rounded border border-gray-200 bg-gray-50"></div>
+            <button
+              class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/60 text-white text-[10px] leading-none opacity-0 group-hover:opacity-100 transition"
+              title="删除图片"
+              @click="onRemoveImage(i, id)"
+            >×</button>
+          </div>
+          <label class="w-12 h-12 rounded border border-dashed border-gray-300 flex items-center justify-center text-gray-300 text-lg cursor-pointer hover:border-accent hover:text-accent transition">
+            +
+            <input type="file" accept="image/*" multiple class="hidden" @change="onUpload(i, $event)" />
+          </label>
+        </div>
       </div>
     </div>
   </div>

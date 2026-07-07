@@ -13,6 +13,8 @@ function normalizeDay(day, i) {
       narration: w.narration ?? '',
       prevNarration: w.prevNarration ?? '',
       address: w.address ?? '',
+      note: w.note ?? '',
+      images: Array.isArray(w.images) ? w.images : [],
     })),
     segments: day.segments ?? null,
   }
@@ -142,6 +144,31 @@ export const useTripStore = defineStore('trip', () => {
     wp.prevNarration = cur
   }
 
+  // —— 节点备注 / 图片（动画信息卡用）——
+  function setNote(dayNumber, index, text) {
+    const day = findDay(dayNumber)
+    const wp = day?.waypoints[index]
+    if (wp) wp.note = text.trim()
+  }
+
+  function addImage(dayNumber, index, imageId) {
+    const day = findDay(dayNumber)
+    const wp = day?.waypoints[index]
+    if (wp && !wp.images.includes(imageId)) wp.images.push(imageId)
+  }
+
+  function removeImage(dayNumber, index, imageId) {
+    const day = findDay(dayNumber)
+    const wp = day?.waypoints[index]
+    if (wp) wp.images = wp.images.filter((id) => id !== imageId)
+  }
+
+  function setImages(dayNumber, index, ids) {
+    const day = findDay(dayNumber)
+    const wp = day?.waypoints[index]
+    if (wp) wp.images = [...ids]
+  }
+
   function setVoice(slug) {
     if (plan.value) plan.value.voice = slug
   }
@@ -204,6 +231,10 @@ export const useTripStore = defineStore('trip', () => {
     setDaySegments,
     setNarration,
     restorePrevNarration,
+    setNote,
+    addImage,
+    removeImage,
+    setImages,
     setVoice,
     setRate,
     loadPresetNarration,
