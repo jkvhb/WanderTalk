@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+第四阶段续：AI 自动配图（Pixabay），V1 只改检索词不改文本。
+
+### Added
+- 视频工作室「AI 自动配图（仅无图节点）」：一键为所有无图节点各配最多 3 张 Pixabay 免费商用图片，全自动、后台静默，只看进度
+- 后端 `POST /api/imageQuery`：DeepSeek 批量为无图节点生成检索词（中文名/英文名/场景描述/区域意象词兜底）+ 互证关键词
+- 后端 `GET /api/images/search`：Pixabay 搜索代理，字段裁剪 + 同 q+lang 24h 内存缓存（满足 Pixabay 条款）
+- 后端 `GET /api/images/fetch`：图片字节下载代理（域白名单仅 pixabay.com/cdn.pixabay.com，防 SSRF），选中图片强制下载入库（不热链，符合 Pixabay 使用条款）
+- `scoreImageMatch`/`pickImages`（`src/utils/imageMatch.js`）：Pixabay 标签串与节点关键词做子串宽松互证计分，替代视觉模型判图
+- 检索词降级链：中文名 → 英文名 → 场景描述 → 区域意象词，命中即止；单节点全部落空则跳过、保持文字版展示页
+- `.env.example` 新增 `PIXABAY_KEY`（服务端专用，前端不可见）
+
+### Changed
+- 配图流程幂等：重跑「AI 自动配图」只处理仍无图的节点，已有图（含手动上传）不受影响
+
+### 不做（本期，见 docs/specs/2026-07-05-phase4d-auto-images-design.md）
+- 改旁白文本（"边写边搜改文本"归 Phase 5 编排层）、逐节点手动重搜按钮、LLM 逐图裁判、图片来源署名 UI
+
 ## [0.4.0] - 2026-07-05
 
 第四阶段：旁白驱动的飞行动画（MVP 之后经 4b/4c 两轮手测迭代，以下「最终形态」为发布态）。
