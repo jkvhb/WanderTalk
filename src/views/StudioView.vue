@@ -39,6 +39,20 @@ function synthAll() {
   studio.runSynthAll()
 }
 
+const blankImageCount = computed(() => {
+  if (!trip.plan) return 0
+  return trip.plan.days.reduce((n, d) => n + d.waypoints.filter((w) => !w.images?.length).length, 0)
+})
+
+function imageAutoFillAll() {
+  uiError.value = ''
+  if (!settings.llmKey) {
+    uiError.value = '请先在「设置」填写 DeepSeek API Key'
+    return
+  }
+  studio.runImageAutoFillAll(settings.llmKey)
+}
+
 const showPlayer = ref(false)
 function startPreview() {
   uiError.value = ''
@@ -95,6 +109,26 @@ function startPreview() {
           <p v-else-if="studio.aiJob.error" class="text-[11px] text-red-500">{{ studio.aiJob.error }}</p>
           <p v-else-if="studio.aiJob.finishedAt" class="text-[11px] text-green-600">
             ✓ 已生成完毕（{{ studio.aiJob.done }} 段）·再次点击重新生成（旧稿可一键切回）
+          </p>
+        </div>
+
+        <!-- AI 自动配图 -->
+        <div class="space-y-1">
+          <button
+            @click="imageAutoFillAll"
+            :disabled="studio.imageJob.running"
+            class="w-full py-1.5 rounded-lg bg-gray-100 text-gray-600 text-sm hover:bg-gray-200 transition disabled:opacity-50"
+          >AI 自动配图（仅无图节点）</button>
+          <p v-if="studio.imageJob.running" class="text-[11px] text-gray-500">
+            正在搜索 {{ studio.imageJob.done + studio.imageJob.skipped }}/{{ studio.imageJob.total }}
+            · {{ studio.imageJob.current }}
+          </p>
+          <p v-else-if="studio.imageJob.error" class="text-[11px] text-red-500">{{ studio.imageJob.error }}</p>
+          <p v-else-if="studio.imageJob.finishedAt" class="text-[11px] text-green-600">
+            ✓ 已配图 {{ studio.imageJob.done }} 节点 · 跳过 {{ studio.imageJob.skipped }}
+          </p>
+          <p v-else-if="blankImageCount" class="text-[11px] text-gray-400">
+            {{ blankImageCount }} 个节点还没有图片
           </p>
         </div>
 
