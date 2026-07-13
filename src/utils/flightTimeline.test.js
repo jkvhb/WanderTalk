@@ -23,12 +23,13 @@ function twoStops() {
 // 时间轴：intro 0-3 | dwell A 3-7（0.5+2+1+0.5）| fly 7-(7+flyDur) | dwell B 5s | outro 4
 
 describe('flyDurationForKm', () => {
-  it('clamp(d/50, 2, 6)：100km=2s、150km=3s、200km=4s、600km 封顶 6s、30km 下限 2s', () => {
-    expect(flyDurationForKm(100)).toBe(2)
-    expect(flyDurationForKm(150)).toBe(3)
-    expect(flyDurationForKm(200)).toBe(4)
-    expect(flyDurationForKm(600)).toBe(6)
-    expect(flyDurationForKm(30)).toBe(2)
+  it('clamp(d/30, 4, 10)：150km=5s、180km=6s、240km=8s、600km 封顶 10s、60km 下限 4s', () => {
+    expect(flyDurationForKm(150)).toBe(5)
+    expect(flyDurationForKm(180)).toBe(6)
+    expect(flyDurationForKm(240)).toBe(8)
+    expect(flyDurationForKm(600)).toBe(10)
+    expect(flyDurationForKm(60)).toBe(4)
+    expect(flyDurationForKm(100)).toBe(4) // 100/30≈3.33 → 下限兜住
   })
   it('距离缺失/为 0 用兜底值', () => {
     expect(flyDurationForKm(0, 2.5)).toBe(2.5)

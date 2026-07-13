@@ -63,7 +63,7 @@ describe('flight store buildFromPlan', () => {
 })
 
 function tinyTimeline() {
-  // intro 3 | dwell A (0.5+2+1+0.5=4) → 3~7 | fly ~2.22 | dwell B (0.5+3+1+0.5=5) | outro 4
+  // intro 3 | dwell A (0.5+2+1+0.5=4) → 3~7 | fly ~3.71（111km/30 下限兜住后） | dwell B (0.5+3+1+0.5=5) | outro 4
   const stops = [
     { node: { lng: 0, lat: 0, name: 'A', altitude: 100, images: [] }, audioDuration: 2, routeToHere: [] },
     { node: { lng: 1, lat: 0, name: 'B', altitude: 200, images: [] }, audioDuration: 3, routeToHere: [[0, 0], [1, 0]] },
@@ -142,7 +142,7 @@ describe('flight store 播放', () => {
     }
     flight.attach(adapter)
     flight.loadTimeline(tinyTimeline(), [new Blob(['0']), new Blob(['1'])])
-    flight.seek(8) // fly 段（7 ~ 约 9.22）
+    flight.seek(8) // fly 段（7 ~ 约 10.7）
     expect(adapter.setCar).toHaveBeenLastCalledWith(
       expect.objectContaining({ lng: expect.any(Number), headingDeg: expect.any(Number) }),
     )

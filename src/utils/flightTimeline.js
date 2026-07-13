@@ -15,10 +15,11 @@ const DEFAULTS = {
   outro: { lines: [] },
 }
 
-// 旅行段时长随距离：clamp(d_km/50, 2, 6) 秒；距离缺失/为 0 用兜底
+// 旅行段时长随距离：clamp(d_km/30, 4, 10) 秒；距离缺失/为 0 用兜底
+// （2026-07-05 手测：原 clamp(d/50,2,6) 的小车段偏短，整体上调 ~1.7 倍）
 export function flyDurationForKm(dKm, fallback = 2.5) {
   if (!(dKm > 0)) return fallback
-  return Math.min(6, Math.max(2, dKm / 50))
+  return Math.min(10, Math.max(4, dKm / 30))
 }
 
 // stops: [{ node, audioDuration, routeToHere }]（有序，首个 routeToHere 通常为 []）

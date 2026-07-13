@@ -17,6 +17,7 @@
 - `.env.example` 新增 `PIXABAY_KEY`（服务端专用，前端不可见）
 
 ### Changed
+- 旅行段（小车跑图）时长上调：clamp(km/50, 2~6s) → **clamp(km/30, 4~10s)**（手测反馈小车段偏短）
 - 配图流程幂等：重跑「AI 自动配图」只处理仍无图的节点，已有图（含手动上传）不受影响
 
 ### 不做（本期，见 docs/specs/2026-07-05-phase4d-auto-images-design.md）
