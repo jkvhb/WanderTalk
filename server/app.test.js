@@ -9,6 +9,7 @@ function makeApp(overrides = {}) {
     generateImageQueries: async () => [],
     searchImages: async () => [],
     fetchImageBytes: async () => ({ contentType: 'image/jpeg', buffer: Buffer.from('IMG') }),
+    generateChoreography: async () => [],
     ...overrides,
   })
 }
@@ -90,6 +91,42 @@ describe('POST /api/imageQuery', () => {
     const res = await request(app)
       .post('/api/imageQuery')
       .send({ apiKey: 'sk', nodes: [{ name: 'x' }] })
+    expect(res.status).toBe(500)
+    expect(res.body.error).toMatch(/JSON/)
+  })
+})
+
+describe('POST /api/choreography', () => {
+  it('缺 apiKey 返回 400', async () => {
+    const res = await request(makeApp())
+      .post('/api/choreography')
+      .send({ nodes: [{ index: 0, narration: 'x', imageCount: 2 }] })
+    expect(res.status).toBe(400)
+  })
+  it('nodes 为空返回 400', async () => {
+    const res = await request(makeApp()).post('/api/choreography').send({ apiKey: 'sk', nodes: [] })
+    expect(res.status).toBe(400)
+  })
+  it('正常返回 results', async () => {
+    const app = makeApp({
+      generateChoreography: async ({ nodes }) =>
+        nodes.map((n) => ({ index: n.index, tempo: 'medium', phases: [{ at: 0, focus: 0 }], idle: {} })),
+    })
+    const res = await request(app)
+      .post('/api/choreography')
+      .send({ apiKey: 'sk', nodes: [{ index: 0, narration: '康定', imageCount: 2 }] })
+    expect(res.status).toBe(200)
+    expect(res.body.results[0]).toMatchObject({ index: 0, tempo: 'medium' })
+  })
+  it('生成失败透传可读错误', async () => {
+    const app = makeApp({
+      generateChoreography: async () => {
+        throw new Error('AI 返回的不是有效 JSON，请重试')
+      },
+    })
+    const res = await request(app)
+      .post('/api/choreography')
+      .send({ apiKey: 'sk', nodes: [{ index: 0, narration: 'x', imageCount: 2 }] })
     expect(res.status).toBe(500)
     expect(res.body.error).toMatch(/JSON/)
   })
