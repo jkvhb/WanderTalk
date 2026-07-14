@@ -53,6 +53,24 @@ function imageAutoFillAll() {
   studio.runImageAutoFillAll(settings.llmKey)
 }
 
+// Phase 4e：编排动效候选=有旁白且 ≥1 张图的节点
+const choreoEligibleCount = computed(() => {
+  if (!trip.plan) return 0
+  return trip.plan.days.reduce(
+    (n, d) => n + d.waypoints.filter((w) => w.narration && w.images?.length).length,
+    0,
+  )
+})
+
+function choreographyAll() {
+  uiError.value = ''
+  if (!settings.llmKey) {
+    uiError.value = '请先在「设置」填写 DeepSeek API Key'
+    return
+  }
+  studio.runChoreographyAll(settings.llmKey)
+}
+
 const showPlayer = ref(false)
 function startPreview() {
   uiError.value = ''
@@ -129,6 +147,25 @@ function startPreview() {
           </p>
           <p v-else-if="blankImageCount" class="text-[11px] text-gray-400">
             {{ blankImageCount }} 个节点还没有图片
+          </p>
+        </div>
+
+        <!-- AI 编排动效（Phase 4e） -->
+        <div class="space-y-1">
+          <button
+            @click="choreographyAll"
+            :disabled="studio.choreoJob.running"
+            class="w-full py-1.5 rounded-lg bg-gray-100 text-gray-600 text-sm hover:bg-gray-200 transition disabled:opacity-50"
+          >AI 编排动效（有图节点）</button>
+          <p v-if="studio.choreoJob.running" class="text-[11px] text-gray-500">
+            正在编排 {{ studio.choreoJob.done + studio.choreoJob.skipped }}/{{ studio.choreoJob.total }}…
+          </p>
+          <p v-else-if="studio.choreoJob.error" class="text-[11px] text-red-500">{{ studio.choreoJob.error }}</p>
+          <p v-else-if="studio.choreoJob.finishedAt" class="text-[11px] text-green-600">
+            ✓ 已配置 {{ studio.choreoJob.done }} 节点 · 跳过 {{ studio.choreoJob.skipped }}
+          </p>
+          <p v-else-if="choreoEligibleCount" class="text-[11px] text-gray-400">
+            {{ choreoEligibleCount }} 个节点可编排（有旁白且有图）
           </p>
         </div>
 
