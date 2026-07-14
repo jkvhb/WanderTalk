@@ -149,6 +149,24 @@ describe('sampleAt · 契约 v2', () => {
     expect(sampleAt(tl, dwellBStart + 4.4).showcase.imageIndex).toBe(1) // p=0.88
   })
 
+  it('narrationFrac：语音窗口前 0、窗口中=进度比例、窗口后 1（4e 相位驱动）', () => {
+    // dwell A：3~7，audioStart=3.5，audioDuration=2 → 窗口 3.5~5.5
+    expect(sampleAt(tl, 3.2).showcase.narrationFrac).toBe(0) // 揭幕期间未开讲
+    expect(sampleAt(tl, 4.5).showcase.narrationFrac).toBeCloseTo(0.5, 6) // (4.5-3.5)/2
+    expect(sampleAt(tl, 5.0).showcase.narrationFrac).toBeCloseTo(0.75, 6)
+    expect(sampleAt(tl, 6.0).showcase.narrationFrac).toBe(1) // 讲完后保持 1
+  })
+
+  it('narrationFrac：无语音（audioDuration=0）恒为 0', () => {
+    const stops = twoStops()
+    stops[0].audioDuration = 0
+    const tlNoAudio = buildFlightTimeline(stops, OPTS)
+    // dwell A 变为 0.5+0+1+0.5=2s（3~5），整段 narrationFrac 恒 0
+    expect(sampleAt(tlNoAudio, 3.2).showcase.narrationFrac).toBe(0)
+    expect(sampleAt(tlNoAudio, 4.0).showcase.narrationFrac).toBe(0)
+    expect(sampleAt(tlNoAudio, 4.8).showcase.narrationFrac).toBe(0)
+  })
+
   it('outro：全程总览 + 片尾 + 全程走完的上色态', () => {
     const s = sampleAt(tl, tl.totalDuration)
     expect(s.phase).toBe('outro')
