@@ -5,6 +5,8 @@ import { useFlightStore } from '../stores/flight'
 import { useSettingsStore } from '../stores/settings'
 import { createFlightMap } from '../composables/useMapLibre'
 import { getImage } from '../utils/db'
+import { compileChoreography } from '../utils/choreography'
+import { hashString } from '../utils/rand'
 
 const emit = defineEmits(['close'])
 const flight = useFlightStore()
@@ -108,6 +110,74 @@ watch(
   },
 )
 const currentImg = computed(() => imgUrls.value[showcase.value?.imageIndex ?? 0] || null)
+
+// —— Phase 4e：编排动效（LLM 配参 + 词汇表编译，全部 transform/opacity，卡片 pointer-events:none）——
+// computed 按 activeNode 缓存 = 每站只编译一次；seed 取 narrationHash（生成时的旁白哈希，
+// 十六进制）保证与配置同源，缺失则退回现场旁白哈希——确定性：同节点每次播放动效一致
+const compiledChoreo = computed(() => {
+  const node = activeNode.value
+  const cfg = node?.choreography?.config
+  if (!cfg) return null
+  // imageCount 取已加载成功的 objectURL 数（而非 node.images 长度）：
+  // 加载中/个别 Blob 缺失时自动回落，绝不渲染空白卡片
+  const imageCount = imgUrls.value.length
+  const hex = node.choreography.narrationHash
+  const seed = hex ? parseInt(hex, 16) >>> 0 : hashString(node.narration || '')
+  return compileChoreography(cfg, { imageCount, seed })
+})
+// 卡片模式：有配置且 ≥2 张图已加载完（异步加载中先回落全屏铺底，不闪半空卡）
+const cardMode = computed(() => compiledChoreo.value?.mode === 'cards')
+// 1 张图 + 有配置：全屏铺底叠加微呼吸（≤2%）
+const fullbleedBreathe = computed(() =>
+  compiledChoreo.value?.mode === 'fullbleed' ? compiledChoreo.value.breathe : null,
+)
+const fullbleedStyle = computed(() => {
+  const b = fullbleedBreathe.value
+  if (!b) return null
+  return { '--breathe-amp': (1 + b.amp).toFixed(4), '--breathe-period': b.periodS.toFixed(2) + 's' }
+})
+
+// 相位表 → 当前相位：narrationFrac 对照 at（取最后一个 at ≤ frac 的相位）
+const phaseIndex = computed(() => {
+  const c = compiledChoreo.value
+  if (!c || c.mode !== 'cards' || !c.phases?.length) return -1
+  const frac = showcase.value?.narrationFrac ?? 0
+  let idx = 0
+  for (let k = 0; k < c.phases.length; k++) {
+    if (frac >= c.phases[k].at) idx = k
+  }
+  return idx
+})
+const currentPhase = computed(() =>
+  phaseIndex.value >= 0 ? compiledChoreo.value?.phases?.[phaseIndex.value] ?? null : null,
+)
+const focusIndex = computed(() => currentPhase.value?.focus ?? -1)
+
+// pulse 强调：相位切换瞬间一次性小弹跳——交替 a/b 类名重启同款动画
+const pulseFlip = ref(false)
+watch(phaseIndex, (val, old) => {
+  if (val < 0 || val === old) return
+  if (currentPhase.value?.accent === 'pulse') pulseFlip.value = !pulseFlip.value
+})
+
+// 每卡 CSS 变量（编译产物 → 参数化静态 keyframes）；焦点卡置顶交给内联 zIndex
+function cardStyle(card, idx) {
+  return {
+    left: card.base.xPct.toFixed(2) + '%',
+    top: card.base.yPct.toFixed(2) + '%',
+    zIndex: idx === focusIndex.value ? 40 : card.base.z,
+    '--rot0': card.base.rotDeg.toFixed(2) + 'deg',
+    '--dx': card.drift.dxPct.toFixed(2) + '%',
+    '--dy': card.drift.dyPct.toFixed(2) + '%',
+    '--drot': card.drift.dRotDeg.toFixed(2) + 'deg',
+    '--drift-period': card.drift.periodS.toFixed(2) + 's',
+    '--drift-delay': card.drift.delayS.toFixed(2) + 's',
+    '--breathe-amp': (1 + card.breathe.amp).toFixed(4),
+    '--breathe-period': card.breathe.periodS.toFixed(2) + 's',
+    '--enter-delay': card.enter.delayS.toFixed(2) + 's',
+    '--enter-dur': card.enter.durS.toFixed(2) + 's',
+  }
+}
 
 function stopAudioEl() {
   if (audioEl) {
@@ -235,8 +305,39 @@ function toggle() {
 
         <!-- 节点展示页：圆形揭幕（clip-path 由 revealFrac 逐帧驱动，圆心=到站点投影） -->
         <div v-if="showcase && wipeStyle" class="absolute inset-0 bg-black overflow-hidden" :style="wipeStyle">
-          <img v-if="currentImg" :src="currentImg" class="absolute inset-0 w-full h-full object-cover" alt="" />
+          <!-- 无编排配置（或图未加载齐）：现状全屏铺底；1 图+配置时叠加微呼吸（≤2%） -->
+          <img
+            v-if="!cardMode && currentImg"
+            :src="currentImg"
+            class="absolute inset-0 w-full h-full object-cover"
+            :class="fullbleedBreathe ? 'choreo-breathe' : ''"
+            :style="fullbleedStyle"
+            alt=""
+          />
           <div class="absolute inset-0 bg-black/40"></div>
+
+          <!-- 编排卡片（≥2 图且有配置）：容器 z-0 自建堆叠上下文，
+               卡内 z 再高也压不住后面的文字块/控件；:key 换站重启入场动画 -->
+          <div v-if="cardMode" :key="'cards-' + showcase.stopIndex" class="absolute inset-0 z-0 pointer-events-none">
+            <div
+              v-for="(card, idx) in compiledChoreo.cards"
+              :key="idx"
+              class="choreo-card"
+              :class="{ 'is-focus': idx === focusIndex, 'is-dim': focusIndex >= 0 && idx !== focusIndex }"
+              :style="cardStyle(card, idx)"
+            >
+              <div class="choreo-enter">
+                <div class="choreo-drift">
+                  <div
+                    class="choreo-pulse"
+                    :class="idx === focusIndex && currentPhase?.accent === 'pulse' ? (pulseFlip ? 'pulse-a' : 'pulse-b') : ''"
+                  >
+                    <img v-if="imgUrls[idx]" :src="imgUrls[idx]" class="choreo-img choreo-breathe" alt="" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div class="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 text-white/90 text-xs">
             <span class="w-2 h-2 rounded-full bg-teal-300"></span>
@@ -259,7 +360,8 @@ function toggle() {
             >{{ plainNarration }}</p>
           </div>
 
-          <div v-if="imgUrls.length > 1" class="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
+          <!-- 缩略图列只在非卡片模式显示（卡片本身就是图） -->
+          <div v-if="imgUrls.length > 1 && !cardMode" class="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
             <div
               v-for="(u, idx) in imgUrls"
               :key="u"
@@ -298,3 +400,102 @@ function toggle() {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* —— Phase 4e 编排动效：少量静态参数化 keyframes + 每卡 CSS 变量 ——
+   只用 transform/opacity（GPU 合成），待机动画自走不占 JS 帧；
+   数值全部来自 compileChoreography（seed 确定性），此处零随机 */
+
+.choreo-card {
+  position: absolute;
+  width: 36%;
+  aspect-ratio: 4 / 3;
+  transform: translate(-50%, -50%) rotate(var(--rot0)) scale(1);
+  transition: transform 0.6s ease, opacity 0.6s ease; /* focusSwitch：600ms */
+  will-change: transform, opacity;
+}
+.choreo-card.is-focus {
+  transform: translate(-50%, -50%) rotate(var(--rot0)) scale(1.15);
+}
+.choreo-card.is-dim {
+  opacity: 0.75;
+}
+
+/* staggerIn：错峰滑入+淡入（both = 延迟期间保持初始态） */
+.choreo-enter {
+  width: 100%;
+  height: 100%;
+  animation: choreoEnter var(--enter-dur) ease-out var(--enter-delay) both;
+}
+@keyframes choreoEnter {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* driftFloat：缓慢平移+微旋转往返（负 delay=相位差，卡片间不齐步） */
+.choreo-drift {
+  width: 100%;
+  height: 100%;
+  animation: choreoDrift var(--drift-period) ease-in-out var(--drift-delay) infinite alternate;
+}
+@keyframes choreoDrift {
+  from {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  to {
+    transform: translate(var(--dx), var(--dy)) rotate(var(--drot));
+  }
+}
+
+/* pulseAccent：相位切换瞬间一次性小弹跳——a/b 同款动画交替重启 */
+.choreo-pulse {
+  width: 100%;
+  height: 100%;
+}
+.choreo-pulse.pulse-a {
+  animation: choreoPulseA 0.5s ease-out;
+}
+.choreo-pulse.pulse-b {
+  animation: choreoPulseB 0.5s ease-out;
+}
+@keyframes choreoPulseA {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.07); }
+  100% { transform: scale(1); }
+}
+@keyframes choreoPulseB {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.07); }
+  100% { transform: scale(1); }
+}
+
+/* 卡片本体：圆角+细白描边+投影 */
+.choreo-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0.75rem;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45);
+}
+
+/* breathe：缩放呼吸（卡片与 1 图全屏铺底共用；铺底幅度 ≤2%） */
+.choreo-breathe {
+  animation: choreoBreathe var(--breathe-period) ease-in-out infinite alternate;
+}
+@keyframes choreoBreathe {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(var(--breathe-amp));
+  }
+}
+</style>

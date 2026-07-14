@@ -99,7 +99,9 @@ export function compileChoreography(config, { imageCount, seed = 1 } = {}) {
 
   // ≥2 张：安全区内分列散落（列内 seed 抖动），避免卡片堆叠
   const colW = (SAFE.xMax - SAFE.xMin) / count
-  const driftAmp = 0.8 + cfg.idle.drift * 2.7 // 漂移最大振幅（%）
+  // 漂移振幅：% 相对卡片自身盒子（CSS translate 百分比语义），卡宽约 36% 画面
+  // → 实际位移约为数值的 1/3 画面百分比，取大些才看得出"坐不住"
+  const driftAmp = 1.5 + cfg.idle.drift * 5.5
   const breatheAmp = 0.008 + cfg.idle.breathe * 0.04
 
   const cards = []
