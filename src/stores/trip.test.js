@@ -277,3 +277,39 @@ describe('trip store 节点 note/images', () => {
     expect(t.plan.days[0].waypoints[0].note).toBe('')
   })
 })
+
+describe('trip store 编排动效（Phase 4e）', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('归一化为每个节点补 choreography=null', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    expect(t.plan.days[0].waypoints[0].choreography).toBeNull()
+  })
+
+  it('setChoreography 存 { config, narrationHash }', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    const config = { tempo: 'lively', phases: [{ at: 0, focus: 0, accent: 'none' }], idle: { drift: 0.5, breathe: 0.3 } }
+    t.setChoreography(1, 0, { config, narrationHash: 'abc123' })
+    expect(t.plan.days[0].waypoints[0].choreography).toEqual({ config, narrationHash: 'abc123' })
+  })
+
+  it('setChoreography 越界节点静默忽略', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    expect(() => t.setChoreography(1, 999, { config: {}, narrationHash: 'x' })).not.toThrow()
+    expect(() => t.setChoreography(99, 0, { config: {}, narrationHash: 'x' })).not.toThrow()
+  })
+
+  it('exportJson/importJson 保留 choreography（与 note/images 同级持久化）', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    const config = { tempo: 'calm', phases: [{ at: 0, focus: 0, accent: 'pulse' }], idle: { drift: 0.2, breathe: 0.1 } }
+    t.setChoreography(1, 0, { config, narrationHash: 'deadbeef' })
+    const json = t.exportJson()
+    t.clear()
+    t.importJson(json)
+    expect(t.plan.days[0].waypoints[0].choreography).toEqual({ config, narrationHash: 'deadbeef' })
+  })
+})

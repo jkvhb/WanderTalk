@@ -36,6 +36,11 @@ vi.mock('../utils/image', () => ({
   downscaleImage: vi.fn(async () => ({ blob: new Blob(['x']), mime: 'image/jpeg', w: 10, h: 10 })),
 }))
 
+const generateChoreographyConfigs = vi.fn()
+vi.mock('../composables/useChoreography', () => ({
+  generateChoreographyConfigs: (...args) => generateChoreographyConfigs(...args),
+}))
+
 import { useStudioStore } from './studio'
 import { useTripStore } from './trip'
 import { getImage } from '../utils/db'
@@ -161,6 +166,129 @@ describe('studio store', () => {
       expect(studio.imageJob.total).toBeGreaterThan(0)
       await promise
       expect(studio.imageJob.done + studio.imageJob.skipped).toBe(studio.imageJob.total)
+    })
+  })
+
+  describe('runChoreographyAll（AI 编排动效，Phase 4e）', () => {
+    beforeEach(() => {
+      generateChoreographyConfigs.mockReset()
+      generateChoreographyConfigs.mockImplementation(async (nodes) =>
+        nodes.map((n) => ({
+          index: n.index,
+          tempo: 'lively',
+          phases: [{ at: 0, focus: 0, accent: 'none' }],
+          idle: { drift: 0.5, breathe: 0.5 },
+        })),
+      )
+    })
+
+    // 只给 Day1 前两个节点配图 → 候选=有旁白且 ≥1 张图的节点，恰好 2 个
+    // （雅安无预设文案，需手动补旁白才能成为候选）
+    function setupTrip() {
+      const trip = useTripStore()
+      trip.loadPreset318()
+      trip.loadPresetNarration()
+      trip.setNarration(1, 1, '雅安，茶马古道的起点，川藏线从这里正式开始爬升。')
+      trip.addImage(1, 0, 'img_a')
+      trip.addImage(1, 0, 'img_b')
+      trip.addImage(1, 1, 'img_c')
+      return trip
+    }
+
+    it('只处理"有旁白且有图"的节点，normalize 后的配置与 narrationHash 写入 waypoint', async () => {
+      const trip = setupTrip()
+      const studio = useStudioStore()
+      await studio.runChoreographyAll('sk')
+      expect(studio.choreoJob.running).toBe(false)
+      expect(studio.choreoJob.finishedAt).toBeTruthy()
+      expect(studio.choreoJob.total).toBe(2)
+      expect(studio.choreoJob.done).toBe(2)
+      expect(studio.choreoJob.skipped).toBe(0)
+      const wp0 = trip.plan.days[0].waypoints[0]
+      expect(wp0.choreography.config.tempo).toBe('lively')
+      expect(wp0.choreography.config.phases[0].at).toBe(0)
+      expect(wp0.choreography.narrationHash).toBeTruthy()
+      // 无图节点不应有配置
+      expect(trip.plan.days[0].waypoints[2]?.choreography ?? null).toBeNull()
+    })
+
+    it('发给后端的旁白已剥 SSML 标签并截断', async () => {
+      const trip = setupTrip()
+      trip.setNarration(1, 0, '你好<break time="300ms"/>成都，' + '长'.repeat(500))
+      const studio = useStudioStore()
+      await studio.runChoreographyAll('sk')
+      const payload = generateChoreographyConfigs.mock.calls[0][0]
+      const n0 = payload.find((n) => n.index === 0)
+      expect(n0.narration).not.toContain('<')
+      expect(n0.narration).toContain('你好成都')
+      expect(n0.narration.length).toBeLessThanOrEqual(300)
+      expect(n0.imageCount).toBe(2)
+    })
+
+    it('幂等：旁白未改的节点重跑全部跳过，不再调 LLM', async () => {
+      setupTrip()
+      const studio = useStudioStore()
+      await studio.runChoreographyAll('sk')
+      generateChoreographyConfigs.mockClear()
+
+      await studio.runChoreographyAll('sk')
+      expect(generateChoreographyConfigs).not.toHaveBeenCalled()
+      expect(studio.choreoJob.total).toBe(2)
+      expect(studio.choreoJob.skipped).toBe(2)
+      expect(studio.choreoJob.done).toBe(0)
+      expect(studio.choreoJob.finishedAt).toBeTruthy()
+    })
+
+    it('旁白修改后仅该节点重新生成', async () => {
+      const trip = setupTrip()
+      const studio = useStudioStore()
+      await studio.runChoreographyAll('sk')
+      const oldHash = trip.plan.days[0].waypoints[0].choreography.narrationHash
+
+      trip.setNarration(1, 0, '完全不同的新旁白文本')
+      generateChoreographyConfigs.mockClear()
+      generateChoreographyConfigs.mockImplementation(async (nodes) =>
+        nodes.map((n) => ({ index: n.index, tempo: 'calm', phases: [{ at: 0, focus: 0 }], idle: {} })),
+      )
+      await studio.runChoreographyAll('sk')
+      expect(generateChoreographyConfigs).toHaveBeenCalledTimes(1)
+      expect(generateChoreographyConfigs.mock.calls[0][0]).toHaveLength(1)
+      expect(studio.choreoJob.done).toBe(1)
+      expect(studio.choreoJob.skipped).toBe(1)
+      const wp0 = trip.plan.days[0].waypoints[0]
+      expect(wp0.choreography.config.tempo).toBe('calm')
+      expect(wp0.choreography.narrationHash).not.toBe(oldHash)
+    })
+
+    it('LLM 漏掉某节点时用默认配置兜底（normalize 兜底，不留空）', async () => {
+      const trip = setupTrip()
+      generateChoreographyConfigs.mockImplementation(async () => []) // 全漏
+      const studio = useStudioStore()
+      await studio.runChoreographyAll('sk')
+      expect(studio.choreoJob.done).toBe(2)
+      const wp0 = trip.plan.days[0].waypoints[0]
+      expect(wp0.choreography.config.tempo).toBe('medium') // defaultChoreography
+      expect(wp0.choreography.config.phases.length).toBeGreaterThan(0)
+    })
+
+    it('生成报错时进入 error 状态，不抛出', async () => {
+      setupTrip()
+      generateChoreographyConfigs.mockRejectedValueOnce(new Error('生成编排配置失败'))
+      const studio = useStudioStore()
+      await expect(studio.runChoreographyAll('sk')).resolves.not.toThrow()
+      expect(studio.choreoJob.error).toMatch(/生成编排配置失败/)
+      expect(studio.choreoJob.running).toBe(false)
+    })
+
+    it('无候选节点（没图）时不调 LLM，任务直接完成', async () => {
+      const trip = useTripStore()
+      trip.loadPreset318()
+      trip.loadPresetNarration() // 有旁白但全部无图
+      const studio = useStudioStore()
+      await studio.runChoreographyAll('sk')
+      expect(generateChoreographyConfigs).not.toHaveBeenCalled()
+      expect(studio.choreoJob.total).toBe(0)
+      expect(studio.choreoJob.finishedAt).toBeTruthy()
     })
   })
 })

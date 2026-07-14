@@ -4,9 +4,12 @@ import { useTripStore } from './trip'
 import { synthesize } from '../composables/useTts'
 import { generateNarrationDraft } from '../composables/useNarration'
 import { generateImageQueries, searchPixabayImages, fetchPixabayImageBlob } from '../composables/useImages'
+import { generateChoreographyConfigs } from '../composables/useChoreography'
 import { pickImages } from '../utils/imageMatch'
 import { downscaleImage, newImageId } from '../utils/image'
 import { putImage } from '../utils/db'
+import { hashKey } from '../utils/hash'
+import { normalizeChoreography } from '../utils/choreography'
 
 // 任务进度状态挂在 store（而非组件），切换视图时任务不中断、进度可续显。
 function emptyJob() {
@@ -20,11 +23,23 @@ function emptyImageJob() {
 
 const IMAGES_PER_NODE = 3
 const MATCH_THRESHOLD = 0.15
+const CHOREO_NARRATION_MAX = 300 // 发给 LLM 的旁白截断长度（省 token，节奏判断够用）
+
+// 与 FlightPlayer 的 plainNarration 同一剥法：SSML 标签（<break/> <emphasis> 等）不进 LLM 也不进 hash
+function stripSsml(text) {
+  return (text || '').replace(/<[^>]+>/g, '').trim()
+}
+
+// choreoJob 比通用 job 多 skipped（narrationHash 未变而跳过的节点数）
+function emptyChoreoJob() {
+  return { running: false, done: 0, total: 0, skipped: 0, error: '', finishedAt: null }
+}
 
 export const useStudioStore = defineStore('studio', () => {
   const synthJob = ref(emptyJob())
   const aiJob = ref(emptyJob())
   const imageJob = ref(emptyImageJob())
+  const choreoJob = ref(emptyChoreoJob())
 
   // —— 试听播放器（全局单例：播新的自动停旧的，可手动暂停）——
   const playingKey = ref('')
@@ -147,6 +162,62 @@ export const useStudioStore = defineStore('studio', () => {
     }
   }
 
+  // 候选=有旁白且 ≥1 张图的节点（1 张也配：全屏微呼吸分支）；带当前旁白哈希供幂等比对
+  function nodesForChoreography(plan) {
+    const out = []
+    for (const day of plan.days) {
+      day.waypoints.forEach((w, i) => {
+        const plain = stripSsml(w.narration)
+        if (!plain || !w.images?.length) return
+        out.push({
+          dayNumber: day.dayNumber,
+          index: i,
+          plain,
+          imageCount: w.images.length,
+          currentHash: hashKey(plain),
+          storedHash: w.choreography?.narrationHash || '',
+        })
+      })
+    }
+    return out
+  }
+
+  // AI 编排动效：DeepSeek 一次批量为候选节点生成配置 → normalize → 存节点。
+  // 按 narrationHash 幂等——旁白没改的节点跳过；LLM 漏回的节点 normalize 兜底默认配置。
+  async function runChoreographyAll(apiKey) {
+    const trip = useTripStore()
+    if (!trip.plan || choreoJob.value.running) return
+    const candidates = nodesForChoreography(trip.plan)
+    const toProcess = candidates.filter((n) => n.currentHash !== n.storedHash)
+    choreoJob.value = {
+      ...emptyChoreoJob(),
+      running: true,
+      total: candidates.length,
+      skipped: candidates.length - toProcess.length,
+    }
+    try {
+      if (toProcess.length) {
+        const payload = toProcess.map((n, k) => ({
+          index: k,
+          narration: n.plain.slice(0, CHOREO_NARRATION_MAX),
+          imageCount: n.imageCount,
+        }))
+        const results = await generateChoreographyConfigs(payload, { apiKey })
+        toProcess.forEach((n, k) => {
+          const raw = results?.find((r) => r.index === k) ?? results?.[k]
+          const config = normalizeChoreography(raw, n.imageCount)
+          trip.setChoreography(n.dayNumber, n.index, { config, narrationHash: n.currentHash })
+          choreoJob.value.done++
+        })
+      }
+      choreoJob.value.finishedAt = Date.now()
+    } catch (e) {
+      choreoJob.value.error = e.message
+    } finally {
+      choreoJob.value.running = false
+    }
+  }
+
   // 批量合成所有有旁白的节点（已缓存的秒回）
   async function runSynthAll() {
     const trip = useTripStore()
@@ -204,9 +275,11 @@ export const useStudioStore = defineStore('studio', () => {
     synthJob,
     aiJob,
     imageJob,
+    choreoJob,
     runSynthAll,
     runAiDraftAll,
     runImageAutoFillAll,
+    runChoreographyAll,
     playingKey,
     play,
     stopAudio,

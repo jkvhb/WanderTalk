@@ -15,6 +15,7 @@ function normalizeDay(day, i) {
       address: w.address ?? '',
       note: w.note ?? '',
       images: Array.isArray(w.images) ? w.images : [],
+      choreography: w.choreography ?? null, // Phase 4e：{ config, narrationHash }
     })),
     segments: day.segments ?? null,
   }
@@ -169,6 +170,13 @@ export const useTripStore = defineStore('trip', () => {
     if (wp) wp.images = [...ids]
   }
 
+  // Phase 4e：编排动效配置（narrationHash 用于幂等——旁白没改的节点跳过重新生成）
+  function setChoreography(dayNumber, index, { config, narrationHash }) {
+    const day = findDay(dayNumber)
+    const wp = day?.waypoints[index]
+    if (wp) wp.choreography = { config, narrationHash }
+  }
+
   function setVoice(slug) {
     if (plan.value) plan.value.voice = slug
   }
@@ -235,6 +243,7 @@ export const useTripStore = defineStore('trip', () => {
     addImage,
     removeImage,
     setImages,
+    setChoreography,
     setVoice,
     setRate,
     loadPresetNarration,
