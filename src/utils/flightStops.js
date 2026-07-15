@@ -44,6 +44,8 @@ export function collectNarratedStops(plan) {
         note: wp.note ?? '',
         images: Array.isArray(wp.images) ? wp.images : [],
         narration: wp.narration,
+        choreography: wp.choreography ?? null, // 4e：{ config, narrationHash }，展示页据此编译动效
+
       },
       routeToHere,
     })

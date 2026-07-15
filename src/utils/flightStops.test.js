@@ -9,7 +9,10 @@ function makePlan() {
         dayNumber: 1,
         segments: null,
         waypoints: [
-          { name: 'A', lng: 0, lat: 0, altitude: 100, narration: '甲' },
+          {
+            name: 'A', lng: 0, lat: 0, altitude: 100, narration: '甲',
+            choreography: { config: { tempo: 'calm' }, narrationHash: 'abc123' },
+          },
           { name: 'B', lng: 1, lat: 0, altitude: 200, narration: '' }, // 无旁白，跳过
           { name: 'C', lng: 2, lat: 0, altitude: 300, narration: '丙' },
         ],
@@ -47,6 +50,12 @@ describe('collectNarratedStops', () => {
     const s = collectNarratedStops(makePlan())[0].node
     expect(s).toMatchObject({ name: 'A', lng: 0, lat: 0, altitude: 100, narration: '甲' })
     expect(s.images).toEqual([])
+  })
+
+  it('node 透传 choreography（4e 编排动效随 stop 进时间轴），缺省为 null', () => {
+    const stops = collectNarratedStops(makePlan())
+    expect(stops[0].node.choreography).toEqual({ config: { tempo: 'calm' }, narrationHash: 'abc123' })
+    expect(stops[1].node.choreography).toBeNull() // C 未配置
   })
 
   it('优先使用 day.segments[i].path', () => {
