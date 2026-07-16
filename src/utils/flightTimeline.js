@@ -81,7 +81,7 @@ function sceneAt(timeline, tc) {
 const NO_AUDIO = { stopIndex: -1, playing: false, offset: 0 }
 
 // 包围盒式相机：adapter 按 sceneId 记忆化 cameraForBounds，场景内相机静止（零抖动的根）。
-// easeMs>0 时场景切换用 easeTo 可见滑动；缺省=瞬时定位（intro/dwell，seek 不拖泥带水）
+// easeMs>0 时场景切换用 flyTo 可见飞行；缺省=瞬时定位（intro/dwell，seek 不拖泥带水）
 function boundsCamera(entry, o, easeMs) {
   return {
     kind: 'bounds',

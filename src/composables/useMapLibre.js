@@ -1,6 +1,7 @@
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { createCarElement } from '../assets/carMarker'
+import { cameraTransitionFor } from '../utils/cameraTransition'
 
 // 天地图栅格瓦片（DataServer，Web Mercator "_w"）。MapLibre 不支持 {s}，手动展开子域 t0~t7。
 // 用 DataServer 端点（参数少、最常用、最稳），img_w=影像、cia_w=中文注记。
@@ -136,7 +137,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
       const short = Math.min(container.clientWidth || 0, container.clientHeight || 0)
       let fitted = null
       try {
-        // 注：cameraForBounds 按 bearing=0 平面拟合；pitch 由 jumpTo/easeTo 附加，
+        // 注：cameraForBounds 按 bearing=0 平面拟合；pitch 由 jumpTo/flyTo 附加，
         // 25° 俯仰的形变靠 padFrac 外扩兜住（手测可调 boundsPadFrac）。
         fitted = map.cameraForBounds(cam.bounds, { padding: Math.round(short * (cam.padFrac ?? 0.15)) })
       } catch {
@@ -153,11 +154,12 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
       // 滑动时长由时间轴按场景给出（fly=min(3s, 段时长×70%)、outro=3s、intro/dwell 缺省瞬时）；
       // 首个相机/resize 重取景一律直接跳
       const easeMs = cam.easeMs ?? 0
-      if (animate && lastBoundsCam && easeMs > 0) {
-        map.easeTo({ ...target, duration: easeMs, essential: true })
-      } else {
-        map.jumpTo(target)
-      }
+      const transition = cameraTransitionFor(target, {
+        animate,
+        hasPrevious: !!lastBoundsCam,
+        duration: easeMs,
+      })
+      map[transition.method](transition.options)
       lastBoundsSceneId = cam.sceneId ?? null
       lastBoundsCam = cam
       return
