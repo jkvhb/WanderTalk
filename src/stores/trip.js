@@ -2,22 +2,53 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { preset318 } from '../data/preset318'
 import { preset318Narration } from '../data/preset318Narration'
+import { isContentNode } from '../utils/contentNode'
 
-// 单天结构归一化：保证 dayNumber 连续、segments 字段存在。
-function normalizeDay(day, i) {
+// 单天结构归一化：保证 dayNumber 连续、路线元数据完整、segments 字段存在。
+function isRecord(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function cloneJsonValue(value) {
+  if (Array.isArray(value)) return value.map(cloneJsonValue)
+  if (!isRecord(value)) return value
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, cloneJsonValue(entry)]),
+  )
+}
+
+function normalizeWaypoint(w) {
+  if (!isRecord(w)) return null
+  const waypoint = cloneJsonValue(w)
   return {
+    ...waypoint,
+    placeId: waypoint.placeId ?? '',
+    narration: waypoint.narration ?? '',
+    prevNarration: waypoint.prevNarration ?? '',
+    narrate: waypoint.narrate ?? true,
+    roles: Array.isArray(waypoint.roles) ? waypoint.roles : ['route'],
+    routeType: waypoint.routeType ?? 'main',
+    source: waypoint.source ?? null,
+    address: waypoint.address ?? '',
+    note: waypoint.note ?? '',
+    images: Array.isArray(waypoint.images) ? waypoint.images : [],
+    choreography: waypoint.choreography ?? null,
+  }
+}
+
+function normalizeDay(day, i) {
+  const source = isRecord(day) ? day : {}
+  const normalized = cloneJsonValue(source)
+  return {
+    ...normalized,
     dayNumber: i + 1,
-    overnight: day.overnight ?? '',
-    waypoints: (day.waypoints ?? []).map((w) => ({
-      ...w,
-      narration: w.narration ?? '',
-      prevNarration: w.prevNarration ?? '',
-      address: w.address ?? '',
-      note: w.note ?? '',
-      images: Array.isArray(w.images) ? w.images : [],
-      choreography: w.choreography ?? null, // Phase 4e：{ config, narrationHash }
-    })),
-    segments: day.segments ?? null,
+    overnight: normalized.overnight ?? '',
+    overnightPlaceId: normalized.overnightPlaceId ?? '',
+    alternatives: Array.isArray(normalized.alternatives) ? normalized.alternatives : [],
+    waypoints: Array.isArray(source.waypoints)
+      ? source.waypoints.map(normalizeWaypoint).filter(Boolean)
+      : [],
+    segments: normalized.segments ?? null,
   }
 }
 
@@ -190,7 +221,7 @@ export const useTripStore = defineStore('trip', () => {
     for (const day of plan.value.days) {
       for (const wp of day.waypoints) {
         const text = preset318Narration[wp.name]
-        if (text) wp.narration = text
+        if (isContentNode(wp) && text) wp.narration = text
       }
     }
   }
