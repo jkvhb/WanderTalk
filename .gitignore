@@ -32,5 +32,8 @@ dist-ssr
 # Test
 coverage
 
+# Isolated local worktrees
+.worktrees/
+
 # Claude Code local config (per-machine, not shared)
 .claude/settings.local.json
