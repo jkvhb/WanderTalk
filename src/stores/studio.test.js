@@ -191,7 +191,7 @@ describe('studio store', () => {
       trip.setNarration(1, 1, '雅安，茶马古道的起点，川藏线从这里正式开始爬升。')
       trip.addImage(1, 0, 'img_a')
       trip.addImage(1, 0, 'img_b')
-      trip.addImage(1, 1, 'img_c')
+      trip.addImage(1, 5, 'img_c')
       return trip
     }
 

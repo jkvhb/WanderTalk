@@ -13,4 +13,8 @@ describe('preset318Narration', () => {
     expect(preset318Narration['成都']).toContain('成都')
     expect(preset318Narration['拉萨']).toContain('拉萨')
   })
+  it('keeps a narration for the midui showcase stop', () => {
+    expect(preset318Narration['\u7c73\u5806\u51b0\u5ddd']).toMatch(/\S/)
+  })
+
 })

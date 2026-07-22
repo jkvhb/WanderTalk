@@ -74,7 +74,7 @@ describe('trip store 编辑', () => {
     expect(t.dayCount).toBe(8)
     expect(t.plan.days.map((d) => d.dayNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
     // 原 Day 3（理塘）现在是 Day 2
-    expect(t.plan.days[1].overnight).toBe('理塘')
+    expect(t.plan.days[1].overnight).toBe('\u5df4\u5858')
   })
 
   it('addWaypoint 添加节点并使当天 segments 失效', () => {
