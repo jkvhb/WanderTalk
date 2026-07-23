@@ -8,6 +8,7 @@ function makeApp(overrides = {}) {
     generateNarration: async () => [],
     generateImageQueries: async () => [],
     searchImages: async () => [],
+    searchCommonsImages: async () => [],
     fetchImageBytes: async () => ({ contentType: 'image/jpeg', buffer: Buffer.from('IMG') }),
     generateChoreography: async () => [],
     ...overrides,
@@ -156,6 +157,15 @@ describe('GET /api/images/search', () => {
     const res = await request(app).get('/api/images/search').query({ q: 'tibet' })
     expect(res.status).toBe(500)
     expect(res.body.error).toMatch(/PIXABAY_KEY/)
+  })
+})
+
+describe('GET /api/images/commons', () => {
+  it('returns Commons search results', async () => {
+    const app = makeApp({ searchCommonsImages: async ({ q }) => [{ id: 'c1', provider: 'commons', title: q }] })
+    const res = await request(app).get('/api/images/commons').query({ q: 'bridge' })
+    expect(res.status).toBe(200)
+    expect(res.body.results[0]).toMatchObject({ provider: 'commons', title: 'bridge' })
   })
 })
 

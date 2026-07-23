@@ -35,3 +35,10 @@ export async function fetchPixabayImageBlob(url) {
   }
   return res.blob()
 }
+
+export async function searchCommonsImages(q) {
+  const res = await fetch(`/api/images/commons?${new URLSearchParams({ q }).toString()}`)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.error || `Commons search failed (${res.status})`)
+  return data.results
+}

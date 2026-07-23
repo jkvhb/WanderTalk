@@ -9,6 +9,7 @@ export function createApp({
   generateNarration,
   generateImageQueries,
   searchImages,
+  searchCommonsImages,
   fetchImageBytes,
   generateChoreography,
 }) {
@@ -96,6 +97,21 @@ export function createApp({
         throw err
       }
       const results = await searchImages({ q, lang })
+      res.json({ results })
+    } catch (e) {
+      res.status(e.status || 500).json({ error: e.message })
+    }
+  })
+
+  app.get('/api/images/commons', async (req, res) => {
+    try {
+      const { q } = req.query || {}
+      if (!q) {
+        const err = new Error('Missing q')
+        err.status = 400
+        throw err
+      }
+      const results = await searchCommonsImages({ q })
       res.json({ results })
     } catch (e) {
       res.status(e.status || 500).json({ error: e.message })

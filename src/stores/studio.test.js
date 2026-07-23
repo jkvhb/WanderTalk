@@ -21,12 +21,14 @@ const generateImageQueries = vi.fn(async (nodes) =>
   nodes.map((n, i) => ({ index: i, queries: ['q:' + n.name], keywords: ['kw:' + n.name] })),
 )
 const searchPixabayImages = vi.fn(async (q) => [
-  { id: 'hit:' + q, tags: 'kw:' + q.slice(2), webformatURL: 'w', largeImageURL: 'l:' + q, pageURL: 'p:' + q },
+  { id: 'hit:' + q, tags: 'kw:' + q.slice(2) + ', ' + q, webformatURL: 'w', largeImageURL: 'l:' + q, pageURL: 'p:' + q },
 ])
 const fetchPixabayImageBlob = vi.fn(async () => new Blob(['img']))
+const searchCommonsImages = vi.fn(async () => [])
 vi.mock('../composables/useImages', () => ({
   generateImageQueries: (...args) => generateImageQueries(...args),
   searchPixabayImages: (...args) => searchPixabayImages(...args),
+  searchCommonsImages: (...args) => searchCommonsImages(...args),
   fetchPixabayImageBlob: (...args) => fetchPixabayImageBlob(...args),
 }))
 
@@ -85,6 +87,9 @@ describe('studio store', () => {
       idCounter = 0
       generateImageQueries.mockClear()
       searchPixabayImages.mockClear()
+      searchPixabayImages.mockImplementation(async (q) => [
+        { id: 'hit:' + q, tags: 'kw:' + q.slice(2) + ', ' + q, webformatURL: 'w', largeImageURL: 'l:' + q, pageURL: 'p:' + q },
+      ])
       fetchPixabayImageBlob.mockClear()
     })
 
@@ -146,6 +151,30 @@ describe('studio store', () => {
       expect(first.images.length).toBe(0)
     })
 
+    it('地标检索只接受能直接佐证地标名的图片，不把泛场景图当作命中', async () => {
+      const trip = useTripStore()
+      trip.replacePlan({
+        days: [{
+          dayNumber: 1,
+          title: '测试',
+          waypoints: [{ name: '金沙江大桥', lng: 99, lat: 29, narration: '测试讲解', images: [] }],
+        }],
+      })
+      generateImageQueries.mockResolvedValueOnce([
+        { index: 0, queries: ['金沙江大桥'], keywords: ['大桥', '金沙江'] },
+      ])
+      searchPixabayImages.mockResolvedValueOnce([
+        { id: 'generic-bridge', tags: 'bridge, river, landscape', webformatURL: 'w', largeImageURL: 'l', pageURL: 'p' },
+      ])
+      searchCommonsImages.mockResolvedValueOnce([])
+
+      const studio = useStudioStore()
+      await studio.runImageAutoFillAll('sk')
+
+      expect(trip.plan.days[0].waypoints[0].images).toEqual([])
+      expect(studio.imageJob.done).toBe(0)
+      expect(studio.imageJob.skipped).toBe(1)
+    })
     it('imageQuery 报错时进入 error 状态，不抛出', async () => {
       generateImageQueries.mockRejectedValueOnce(new Error('生成检索词失败'))
       const trip = useTripStore()

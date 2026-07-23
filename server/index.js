@@ -2,6 +2,7 @@ import { createApp } from './app.js'
 import { synthesizeToMp3 } from './synthesize.js'
 import { makePlanNarrationGenerator, callDeepSeek } from './narration.js'
 import { makeImageQueryGenerator, searchImages, fetchImageBytes } from './images.js'
+import { searchCommonsImages } from './commonsImages.js'
 import { makeChoreographyGenerator } from './choreography.js'
 
 // 加载 .env（存在则读取，如 PIXABAY_KEY）；Node 20.6+/22+ 原生支持，找不到文件也不报错退出
@@ -25,6 +26,7 @@ createApp({
   generateNarration,
   generateImageQueries,
   searchImages: searchImagesWithKey,
+  searchCommonsImages,
   fetchImageBytes,
   generateChoreography,
 }).listen(PORT, () => {

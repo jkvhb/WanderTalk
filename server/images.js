@@ -115,7 +115,7 @@ export function isAllowedImageHost(rawUrl) {
   }
   if (parsed.protocol !== 'https:') return false
   const host = parsed.hostname.toLowerCase()
-  return host === 'pixabay.com' || host === 'cdn.pixabay.com' || host.endsWith('.pixabay.com')
+  return host === 'pixabay.com' || host === 'cdn.pixabay.com' || host.endsWith('.pixabay.com') || host === 'upload.wikimedia.org'
 }
 
 // —— 图片字节下载代理（浏览器直连 CDN 可能被 CORS 拦）——

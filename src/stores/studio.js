@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useTripStore } from './trip'
 import { synthesize } from '../composables/useTts'
 import { generateNarrationDraft } from '../composables/useNarration'
-import { generateImageQueries, searchPixabayImages, fetchPixabayImageBlob } from '../composables/useImages'
+import { generateImageQueries, searchPixabayImages, searchCommonsImages, fetchPixabayImageBlob } from '../composables/useImages'
 import { generateChoreographyConfigs } from '../composables/useChoreography'
 import { pickImages } from '../utils/imageMatch'
 import { downscaleImage, newImageId } from '../utils/image'
@@ -133,9 +133,16 @@ export const useStudioStore = defineStore('studio', () => {
 
           let picked = []
           for (const query of queries) {
+            const evidence = [...keywords, query]
             const hits = await searchPixabayImages(query, 'zh')
-            picked = pickImages(hits, keywords, IMAGES_PER_NODE, MATCH_THRESHOLD)
-            if (picked.length) break // 命中即止，不再尝试后续降级检索词
+            const exactPixabay = pickImages(hits, [query], IMAGES_PER_NODE, MATCH_THRESHOLD)
+            picked = exactPixabay.length ? pickImages(hits, evidence, IMAGES_PER_NODE, MATCH_THRESHOLD) : []
+            if (!picked.length) {
+              const commons = await searchCommonsImages(query)
+              const exactCommons = pickImages(commons, [query], IMAGES_PER_NODE, MATCH_THRESHOLD)
+              picked = exactCommons.length ? pickImages(commons, evidence, IMAGES_PER_NODE, MATCH_THRESHOLD) : []
+            }
+            if (picked.length) break
           }
 
           if (!picked.length) {
@@ -152,7 +159,7 @@ export const useStudioStore = defineStore('studio', () => {
               mime,
               w,
               h,
-              source: { provider: 'pixabay', id: hit.id, pageURL: hit.pageURL },
+              source: { provider: hit.provider || 'pixabay', id: hit.id, pageURL: hit.pageURL, attribution: hit.attribution || null },
             })
             trip.addImage(node.dayNumber, node.index, id)
           }
