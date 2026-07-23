@@ -6,6 +6,7 @@ import { getCachedAudio } from '../utils/db'
 import { collectNarratedStops, computeTotalDistance } from '../utils/flightStops'
 import { buildFlightTimeline, sampleAt } from '../utils/flightTimeline'
 import { formatDistance } from '../utils/format'
+import { validatePlan } from '../utils/planValidation'
 
 export const useFlightStore = defineStore('flight', () => {
   const timeline = ref(null)
@@ -31,6 +32,11 @@ export const useFlightStore = defineStore('flight', () => {
     const trip = useTripStore()
     if (!trip.plan) {
       error.value = '还没有路书'
+      return false
+    }
+    const validationIssues = validatePlan(trip.plan)
+    if (validationIssues.length) {
+      error.value = `路书校验未通过：${validationIssues[0].message}`
       return false
     }
     const stops0 = collectNarratedStops(trip.plan)

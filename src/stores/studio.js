@@ -190,16 +190,16 @@ export const useStudioStore = defineStore('studio', () => {
 
   // AI 编排动效：DeepSeek 一次批量为候选节点生成配置 → normalize → 存节点。
   // 按 narrationHash 幂等——旁白没改的节点跳过；LLM 漏回的节点 normalize 兜底默认配置。
-  async function runChoreographyAll(apiKey) {
+  async function runChoreographyAll(apiKey, { force = false } = {}) {
     const trip = useTripStore()
     if (!trip.plan || choreoJob.value.running) return
     const candidates = nodesForChoreography(trip.plan)
-    const toProcess = candidates.filter((n) => n.currentHash !== n.storedHash)
+    const toProcess = force ? candidates : candidates.filter((n) => n.currentHash !== n.storedHash)
     choreoJob.value = {
       ...emptyChoreoJob(),
       running: true,
       total: candidates.length,
-      skipped: candidates.length - toProcess.length,
+      skipped: force ? 0 : candidates.length - toProcess.length,
     }
     try {
       if (toProcess.length) {

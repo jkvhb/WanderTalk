@@ -45,6 +45,17 @@ describe('flight store buildFromPlan', () => {
     expect(flight.error).toBeTruthy()
   })
 
+  it('跨天起终点不连续的旧路书不能进入预览', async () => {
+    const trip = useTripStore()
+    trip.loadPreset318()
+    trip.loadPresetNarration()
+    trip.plan.days[1].waypoints.shift()
+    const flight = useFlightStore()
+    const ok = await flight.buildFromPlan()
+    expect(ok).toBe(false)
+    expect(flight.error).toContain('路书校验未通过')
+    expect(flight.error).toContain('起点')
+  })
   it('部分节点缺音频 → needsSynth 列出名字、返回 false', async () => {
     const { getCachedAudio } = await import('../utils/db')
     const trip = useTripStore()
