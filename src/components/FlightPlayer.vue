@@ -46,6 +46,34 @@ function fmt(sec) {
 const showcase = computed(() => sample.value?.showcase ?? null)
 const wipeOrigin = ref({ x: 0, y: 0, maxR: 0 })
 
+// ??????????????????????????????????
+// ????????? idle ???????????????????
+const tilesReadyForReveal = ref(true)
+const holdClosingReveal = ref(false)
+let tileReadyToken = 0
+watch(
+  () => showcase.value?.stopIndex,
+  async (stopIndex) => {
+    const token = ++tileReadyToken
+    holdClosingReveal.value = false
+    tilesReadyForReveal.value = stopIndex == null
+    if (stopIndex == null) return
+    await mapAdapter?.waitForTiles?.({ timeoutMs: 2500 })
+    if (token === tileReadyToken) {
+      tilesReadyForReveal.value = true
+      holdClosingReveal.value = false
+    }
+  },
+)
+watch(
+  () => showcase.value?.revealFrac,
+  (next, previous) => {
+    if (next == null || previous == null) return
+    if (previous >= 0.999 && next < 0.999 && !tilesReadyForReveal.value) holdClosingReveal.value = true
+  },
+)
+
+
 function updateWipeOrigin() {
   const stage = stageEl.value?.getBoundingClientRect()
   const i = showcase.value?.stopIndex
@@ -64,6 +92,7 @@ function updateWipeOrigin() {
 // 会被 circle(0) 整段裁没且无自愈时机
 let originRetryId = 0
 function tryUpdateWipeOrigin(retries = 10) {
+  tileReadyToken++
   if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(originRetryId)
   if (updateWipeOrigin() || retries <= 0) return
   if (typeof requestAnimationFrame !== 'undefined') {
@@ -82,7 +111,8 @@ const wipeStyle = computed(() => {
   const sc = showcase.value
   if (!sc) return null
   const { x, y, maxR } = wipeOrigin.value
-  const r = Math.max(0, sc.revealFrac) * (maxR || 0)
+  const revealFrac = holdClosingReveal.value ? 1 : sc.revealFrac
+  const r = Math.max(0, revealFrac) * (maxR || 0)
   return { clipPath: `circle(${r.toFixed(1)}px at ${x}px ${y}px)` }
 })
 

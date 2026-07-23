@@ -1,7 +1,7 @@
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { createCarElement } from '../assets/carMarker'
-import { cameraTransitionFor } from '../utils/cameraTransition'
+import { cameraTransitionFor, capCameraZoom } from '../utils/cameraTransition'
 
 // 天地图栅格瓦片（DataServer，Web Mercator "_w"）。MapLibre 不支持 {s}，手动展开子域 t0~t7。
 // 用 DataServer 端点（参数少、最常用、最稳），img_w=影像、cia_w=中文注记。
@@ -146,7 +146,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
       if (!fitted) return
       const target = {
         center: fitted.center,
-        zoom: fitted.zoom,
+        zoom: capCameraZoom(fitted.zoom, { max: cam.maxZoom ?? 11.5 }),
         pitch: cam.pitch ?? 25,
         bearing: cam.bearing ?? 0,
         padding: { top: 0, bottom: 0, left: 0, right: 0 },
@@ -290,6 +290,33 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     return { x: Math.round(p.x), y: Math.round(p.y) }
   }
 
+  // ?????????????????????????????????
+  // ???/???? resolve(false)????????????????????
+  function waitForTiles({ timeoutMs = 2500 } = {}) {
+    return new Promise((resolve) => {
+      if (!map) {
+        resolve(false)
+        return
+      }
+      if (map.areTilesLoaded?.()) {
+        resolve(true)
+        return
+      }
+      let settled = false
+      let timer = null
+      const finish = (ready) => {
+        if (settled) return
+        settled = true
+        if (timer != null) clearTimeout(timer)
+        try { map.off?.('idle', onIdle) } catch { /* ignore */ }
+        resolve(ready)
+      }
+      const onIdle = () => finish(Boolean(map.areTilesLoaded?.() ?? true))
+      try { map.on?.('idle', onIdle) } catch { finish(false); return }
+      timer = setTimeout(() => finish(false), Math.max(0, timeoutMs))
+    })
+  }
+
   function destroy() {
     destroyed = true
     try {
@@ -318,6 +345,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     project,
     setCar,
     setProgress,
+    waitForTiles,
     destroy,
   }
 }

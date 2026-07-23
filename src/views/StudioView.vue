@@ -6,6 +6,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useStudioStore } from '../stores/studio'
 import { VOICES } from '../composables/useTts'
 import NarrationDayCard from '../components/NarrationDayCard.vue'
+import { isContentNode } from '../utils/contentNode'
 // 懒加载：预览时才拉取 MapLibre（~400KB），首屏不背这个包
 const FlightPlayer = defineAsyncComponent(() => import('../components/FlightPlayer.vue'))
 
@@ -19,10 +20,10 @@ const uiError = ref('')
 
 const narratedCount = computed(() => {
   if (!trip.plan) return 0
-  return trip.plan.days.reduce((n, d) => n + d.waypoints.filter((w) => w.narration).length, 0)
+  return trip.plan.days.reduce((n, d) => n + d.waypoints.filter((w) => isContentNode(w) && w.narration).length, 0)
 })
 const blanksExist = computed(
-  () => !!trip.plan && trip.plan.days.some((d) => d.waypoints.some((w) => !w.narration)),
+  () => !!trip.plan && trip.plan.days.some((d) => d.waypoints.some((w) => isContentNode(w) && !w.narration)),
 )
 
 function aiAll() {
@@ -41,7 +42,7 @@ function synthAll() {
 
 const blankImageCount = computed(() => {
   if (!trip.plan) return 0
-  return trip.plan.days.reduce((n, d) => n + d.waypoints.filter((w) => !w.images?.length).length, 0)
+  return trip.plan.days.reduce((n, d) => n + d.waypoints.filter((w) => isContentNode(w) && !w.images?.length).length, 0)
 })
 
 function imageAutoFillAll() {
@@ -57,7 +58,7 @@ function imageAutoFillAll() {
 const choreoEligibleCount = computed(() => {
   if (!trip.plan) return 0
   return trip.plan.days.reduce(
-    (n, d) => n + d.waypoints.filter((w) => w.narration && w.images?.length).length,
+    (n, d) => n + d.waypoints.filter((w) => isContentNode(w) && w.narration && w.images?.length).length,
     0,
   )
 })
@@ -68,7 +69,7 @@ function choreographyAll() {
     uiError.value = '请先在「设置」填写 DeepSeek API Key'
     return
   }
-  studio.runChoreographyAll(settings.llmKey)
+  studio.runChoreographyAll(settings.llmKey, { force: true })
 }
 
 const showPlayer = ref(false)
@@ -142,6 +143,12 @@ function startPreview() {
             · {{ studio.imageJob.current }}
           </p>
           <p v-else-if="studio.imageJob.error" class="text-[11px] text-red-500">{{ studio.imageJob.error }}</p>
+          <p v-else-if="studio.imageJob.finishedAt && studio.imageJob.done === 0 && studio.imageJob.skipped > 0" class="text-[11px] text-red-500">
+            ✕ 已配图 {{ studio.imageJob.done }} 节点 · 跳过 {{ studio.imageJob.skipped }}
+          </p>
+          <p v-else-if="studio.imageJob.finishedAt && studio.imageJob.done > 0 && studio.imageJob.skipped > 0" class="text-[11px] text-amber-600">
+            ⚠ 已配图 {{ studio.imageJob.done }} 节点 · 跳过 {{ studio.imageJob.skipped }}
+          </p>
           <p v-else-if="studio.imageJob.finishedAt" class="text-[11px] text-green-600">
             ✓ 已配图 {{ studio.imageJob.done }} 节点 · 跳过 {{ studio.imageJob.skipped }}
           </p>
@@ -161,6 +168,9 @@ function startPreview() {
             正在编排 {{ studio.choreoJob.done + studio.choreoJob.skipped }}/{{ studio.choreoJob.total }}…
           </p>
           <p v-else-if="studio.choreoJob.error" class="text-[11px] text-red-500">{{ studio.choreoJob.error }}</p>
+          <p v-else-if="studio.choreoJob.finishedAt && studio.choreoJob.done === 0 && studio.choreoJob.skipped > 0" class="text-[11px] text-amber-600">
+            ⚠ 已配置 {{ studio.choreoJob.done }} 节点 · 跳过 {{ studio.choreoJob.skipped }}
+          </p>
           <p v-else-if="studio.choreoJob.finishedAt" class="text-[11px] text-green-600">
             ✓ 已配置 {{ studio.choreoJob.done }} 节点 · 跳过 {{ studio.choreoJob.skipped }}
           </p>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cameraTransitionFor } from './cameraTransition'
+import { cameraTransitionFor, capCameraZoom } from './cameraTransition'
 
 describe('cameraTransitionFor', () => {
   const target = {
@@ -32,4 +32,10 @@ describe('cameraTransitionFor', () => {
       options: target,
     })
   })
+  it('caps unsafe fitted zoom without changing normal overview zoom', () => {
+    expect(capCameraZoom(16)).toBe(11.5)
+    expect(capCameraZoom(8.5)).toBe(8.5)
+    expect(capCameraZoom(-2)).toBe(4)
+  })
+
 })
