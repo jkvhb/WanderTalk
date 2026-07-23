@@ -74,7 +74,7 @@ describe('trip store 编辑', () => {
     expect(t.dayCount).toBe(8)
     expect(t.plan.days.map((d) => d.dayNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
     // 原 Day 3（理塘）现在是 Day 2
-    expect(t.plan.days[1].overnight).toBe('理塘')
+    expect(t.plan.days[1].overnight).toBe('\u5df4\u5858')
   })
 
   it('addWaypoint 添加节点并使当天 segments 失效', () => {
@@ -312,4 +312,107 @@ describe('trip store 编排动效（Phase 4e）', () => {
     t.importJson(json)
     expect(t.plan.days[0].waypoints[0].choreography).toEqual({ config, narrationHash: 'deadbeef' })
   })
+
+  it('归一化并持久化地点身份、角色和住宿地点身份', () => {
+    const t = useTripStore()
+    t.replacePlan({
+      days: [{
+        overnight: 'B',
+        overnightPlaceId: 'b',
+        alternatives: [{ placeId: 'side', name: '支线' }],
+        waypoints: [
+          { placeId: 'a', name: 'A', lng: 100, lat: 30, narrate: false, roles: ['origin'], routeType: 'main', source: { page: 1 } },
+          { placeId: 'b', name: 'B', lng: 101, lat: 30, roles: ['stop', 'overnight'] },
+          { placeId: 'c', name: 'C', lng: 102, lat: 30 },
+        ],
+      }],
+    })
+    const restored = JSON.parse(t.exportJson())
+    expect(restored.days[0]).toMatchObject({ overnightPlaceId: 'b' })
+    expect(restored.days[0].alternatives).toEqual([{ placeId: 'side', name: '支线' }])
+    expect(restored.days[0].waypoints[0]).toMatchObject({
+      placeId: 'a', narrate: false, roles: ['origin'], routeType: 'main', source: { page: 1 },
+    })
+    expect(restored.days[0].waypoints[1]).toMatchObject({
+      narrate: true, routeType: 'main', source: null,
+    })
+    expect(restored.days[0].waypoints[2].roles).toEqual(['route'])
+  })
+
+  it('loadPresetNarration 跳过 narrate=false 和 optional 节点', () => {
+    const t = useTripStore()
+    t.replacePlan({
+      days: [{
+        overnight: '成都',
+        waypoints: [
+          { name: '成都', lng: 104.06, lat: 30.67, narrate: false },
+          { name: '成都', lng: 104.07, lat: 30.67, routeType: 'optional' },
+          { name: '成都', lng: 104.08, lat: 30.67, narrate: true },
+        ],
+      }],
+    })
+    t.loadPresetNarration()
+    expect(t.plan.days[0].waypoints[0].narration).toBe('')
+    expect(t.plan.days[0].waypoints[1].narration).toBe('')
+    expect(t.plan.days[0].waypoints[2].narration).toContain('成都')
+  })
+
+
+  it('畸形 day 和 waypoint 不使载入崩溃，非法 waypoint 被丢弃', () => {
+    const t = useTripStore()
+    expect(() =>
+      t.replacePlan({
+        days: [
+          null,
+          {
+            overnight: 'A',
+            waypoints: [null, 'bad', { name: 'A', lng: 100, lat: 30 }],
+          },
+        ],
+      }),
+    ).not.toThrow()
+    expect(t.plan.days).toHaveLength(2)
+    expect(t.plan.days[0].waypoints).toEqual([])
+    expect(t.plan.days[1].waypoints).toHaveLength(1)
+    expect(t.plan.days[1].waypoints[0].name).toBe('A')
+  })
+
+  it('归一化结果不共享输入的嵌套可变值，并保留 day 扩展字段', () => {
+    const source = {
+      days: [{
+        overnight: 'A',
+        customDay: { nested: { value: 1 } },
+        alternatives: [{ placeId: 'side', meta: { level: 1 } }],
+        segments: [{ path: [[100, 30]] }],
+        waypoints: [{
+          name: 'A',
+          lng: 100,
+          lat: 30,
+          images: ['img-1'],
+          source: { page: 1, meta: { kind: 'pdf' } },
+          choreography: { config: { phases: [{ at: 0 }] } },
+          customWaypoint: { nested: { value: 1 } },
+        }],
+      }],
+    }
+    const t = useTripStore()
+    t.replacePlan(source)
+
+    t.plan.days[0].customDay.nested.value = 2
+    t.plan.days[0].alternatives[0].meta.level = 2
+    t.plan.days[0].segments[0].path[0][0] = 999
+    t.plan.days[0].waypoints[0].images.push('img-2')
+    t.plan.days[0].waypoints[0].source.meta.kind = 'changed'
+    t.plan.days[0].waypoints[0].choreography.config.phases[0].at = 1
+    t.plan.days[0].waypoints[0].customWaypoint.nested.value = 2
+
+    expect(source.days[0].customDay.nested.value).toBe(1)
+    expect(source.days[0].alternatives[0].meta.level).toBe(1)
+    expect(source.days[0].segments[0].path[0][0]).toBe(100)
+    expect(source.days[0].waypoints[0].images).toEqual(['img-1'])
+    expect(source.days[0].waypoints[0].source.meta.kind).toBe('pdf')
+    expect(source.days[0].waypoints[0].choreography.config.phases[0].at).toBe(0)
+    expect(source.days[0].waypoints[0].customWaypoint.nested.value).toBe(1)
+  })
+
 })

@@ -191,7 +191,7 @@ describe('studio store', () => {
       trip.setNarration(1, 1, '雅安，茶马古道的起点，川藏线从这里正式开始爬升。')
       trip.addImage(1, 0, 'img_a')
       trip.addImage(1, 0, 'img_b')
-      trip.addImage(1, 1, 'img_c')
+      trip.addImage(1, 5, 'img_c')
       return trip
     }
 
@@ -291,4 +291,39 @@ describe('studio store', () => {
       expect(studio.choreoJob.finishedAt).toBeTruthy()
     })
   })
+
+  it('路线点和 optional 点不进入旁白、配图、TTS 或动效任务', async () => {
+    const trip = useTripStore()
+    trip.replacePlan({
+      days: [{
+        overnight: '讲解点',
+        waypoints: [
+          { name: '路线点', lng: 100, lat: 30, narrate: false },
+          { name: '可选点', lng: 100.5, lat: 30, routeType: 'optional' },
+          { name: '讲解点', lng: 101, lat: 30, narrate: true },
+        ],
+      }],
+    })
+    const studio = useStudioStore()
+
+    await studio.runAiDraftAll('sk')
+    expect(studio.aiJob.total).toBe(1)
+    expect(trip.plan.days[0].waypoints[0].narration).toBe('')
+    expect(trip.plan.days[0].waypoints[1].narration).toBe('')
+    expect(trip.plan.days[0].waypoints[2].narration).toBe('稿:讲解点')
+
+    await studio.runImageAutoFillAll('sk')
+    expect(studio.imageJob.total).toBe(1)
+    expect(trip.plan.days[0].waypoints[0].images).toEqual([])
+    expect(trip.plan.days[0].waypoints[1].images).toEqual([])
+    expect(trip.plan.days[0].waypoints[2].images).toHaveLength(1)
+
+    await studio.runSynthAll()
+    expect(studio.synthJob.total).toBe(1)
+
+    generateChoreographyConfigs.mockResolvedValueOnce([])
+    await studio.runChoreographyAll('sk')
+    expect(studio.choreoJob.total).toBe(1)
+  })
+
 })

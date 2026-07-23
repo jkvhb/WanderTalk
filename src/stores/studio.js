@@ -10,6 +10,7 @@ import { downscaleImage, newImageId } from '../utils/image'
 import { putImage } from '../utils/db'
 import { hashKey } from '../utils/hash'
 import { normalizeChoreography } from '../utils/choreography'
+import { isContentNode } from '../utils/contentNode'
 
 // 任务进度状态挂在 store（而非组件），切换视图时任务不中断、进度可续显。
 function emptyJob() {
@@ -29,6 +30,7 @@ const CHOREO_NARRATION_MAX = 300 // 发给 LLM 的旁白截断长度（省 token
 function stripSsml(text) {
   return (text || '').replace(/<[^>]+>/g, '').trim()
 }
+
 
 // choreoJob 比通用 job 多 skipped（narrationHash 未变而跳过的节点数）
 function emptyChoreoJob() {
@@ -69,6 +71,7 @@ export const useStudioStore = defineStore('studio', () => {
     const out = []
     for (const day of plan.days) {
       day.waypoints.forEach((w, i) => {
+        if (!isContentNode(w)) return
         if (w.narration) out.push({ dayNumber: day.dayNumber, index: i, narration: w.narration })
       })
     }
@@ -79,6 +82,7 @@ export const useStudioStore = defineStore('studio', () => {
     const out = []
     for (const day of plan.days) {
       day.waypoints.forEach((w, i) => {
+        if (!isContentNode(w)) return
         if (regenerateAll || !w.narration) {
           out.push({
             dayNumber: day.dayNumber,
@@ -100,6 +104,7 @@ export const useStudioStore = defineStore('studio', () => {
     const out = []
     for (const day of plan.days) {
       day.waypoints.forEach((w, i) => {
+        if (!isContentNode(w)) return
         if (!w.images?.length) {
           out.push({ dayNumber: day.dayNumber, index: i, name: w.name, address: w.address, note: w.note })
         }
@@ -167,6 +172,7 @@ export const useStudioStore = defineStore('studio', () => {
     const out = []
     for (const day of plan.days) {
       day.waypoints.forEach((w, i) => {
+        if (!isContentNode(w)) return
         const plain = stripSsml(w.narration)
         if (!plain || !w.images?.length) return
         out.push({
