@@ -114,7 +114,9 @@ export const useTripStore = defineStore('trip', () => {
   function addWaypoint(dayNumber, wp) {
     const day = findDay(dayNumber)
     if (!day) return
-    day.waypoints.push({ ...wp })
+    const waypoint = normalizeWaypoint(wp)
+    if (!waypoint) return
+    day.waypoints.push(waypoint)
     day.segments = null
   }
 
@@ -123,7 +125,9 @@ export const useTripStore = defineStore('trip', () => {
     const day = findDay(dayNumber)
     if (!day) return
     const i = Math.max(0, Math.min(index, day.waypoints.length))
-    day.waypoints.splice(i, 0, { ...wp })
+    const waypoint = normalizeWaypoint(wp)
+    if (!waypoint) return
+    day.waypoints.splice(i, 0, waypoint)
     day.segments = null
   }
 
@@ -186,7 +190,9 @@ export const useTripStore = defineStore('trip', () => {
   function addImage(dayNumber, index, imageId) {
     const day = findDay(dayNumber)
     const wp = day?.waypoints[index]
-    if (wp && !wp.images.includes(imageId)) wp.images.push(imageId)
+    if (!wp) return
+    if (!Array.isArray(wp.images)) wp.images = []
+    if (!wp.images.includes(imageId)) wp.images.push(imageId)
   }
 
   function removeImage(dayNumber, index, imageId) {

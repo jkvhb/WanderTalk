@@ -86,6 +86,23 @@ describe('trip store 编辑', () => {
     expect(t.plan.days[0].segments).toBeNull()
   })
 
+  it('addWaypoint 补齐节点字段，使新增节点可以直接添加图片', () => {
+    const t = useTripStore()
+    t.newEmptyPlan()
+    t.addWaypoint(1, { name: '新节点', lng: 103.5, lat: 30.1 })
+
+    expect(() => t.addImage(1, 0, 'img_a')).not.toThrow()
+    expect(t.plan.days[0].waypoints[0].images).toEqual(['img_a'])
+  })
+
+  it('insertWaypointAt 补齐节点字段，使插入节点可以直接添加图片', () => {
+    const t = useTripStore()
+    t.newEmptyPlan()
+    t.insertWaypointAt(1, 0, { name: '插入节点', lng: 103.5, lat: 30.1 })
+
+    expect(() => t.addImage(1, 0, 'img_a')).not.toThrow()
+    expect(t.plan.days[0].waypoints[0].images).toEqual(['img_a'])
+  })
   it('insertWaypointAt 在指定位置插入并使 segments 失效', () => {
     const t = useTripStore()
     t.loadPreset318()
@@ -256,6 +273,15 @@ describe('trip store 节点 note/images', () => {
     t.loadPreset318()
     t.setNote(1, 0, '  山路十八弯  ')
     expect(t.plan.days[0].waypoints[0].note).toBe('山路十八弯')
+  })
+
+  it('addImage 兼容旧数据中缺失的 images 字段', () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.updateWaypoint(1, 0, { images: undefined })
+
+    expect(() => t.addImage(1, 0, 'img_a')).not.toThrow()
+    expect(t.plan.days[0].waypoints[0].images).toEqual(['img_a'])
   })
 
   it('addImage / removeImage / setImages', () => {
