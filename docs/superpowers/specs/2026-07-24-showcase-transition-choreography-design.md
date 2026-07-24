@@ -20,19 +20,32 @@
 - 不接入实时视频生成、云层生成或逐句词级节拍。
 - 不改动导出渲染器；所有新效果先保证网页预览可确定性重放。
 
-## 受限转场词汇表
+## 受限动效语法
 
-配置增加 `transition`，模型只能选择以下值：
+AI 不是从少数完整特效中二选一，而是从经过验证的动效积木中组合。它永远不能输出 CSS、JavaScript 或任意表达式；程序只消费以下白名单字段，使每次播放和未来导出保持确定性。
+
+### 入口家族
 
 | 值 | 视觉语义 | 适用素材 |
 | --- | --- | --- |
-| `route-bloom` | 从道路到站点向外扩散 | 默认和兜底；对应现有圆形揭幕 |
-| `directional-wipe` | 沿下一段行进方向的柔和幕布推进 | 0～多图均可 |
-| `photo-cascade` | 首张/卡片由行进方向错峰推入，地图随后淡出 | 多图最佳，单图可降级 |
+| `route-bloom` | 从道路到站点向外扩散 | 可靠兜底；对应现有圆形揭幕 |
+| `directional-wipe` | 沿行进方向的柔和幕布推进 | 0～多图均可 |
+| `photo-cascade` | 首张或卡片由行进方向错峰推入，地图随后淡出 | 多图最佳，单图可降级 |
 | `soft-dissolve` | 地图与展示页交叉淡化，文字随后出现 | 0～多图均可 |
+| `layer-unfold` | 多张图片从同一节点层叠展开，焦点卡最后落位 | 多图；单图降级 |
+| `chapter-slide` | 以克制的横向或纵向切页进入新讲解段 | 0～多图均可 |
 
-进入与退出分别配置，但退出仅允许与进入相同或 `soft-dissolve`，避免节点间风格跳变。`route-bloom` 保留为旧项目缺字段、任意非法配置、无法执行的照片级转场或渲染失败时的安全降级；减少动态效果偏好则统一使用 `soft-dissolve`。
+### 可组合维度
 
+| 字段 | 白名单 | 作用 |
+| --- | --- | --- |
+| `anchor` | `route-end` / `screen-center` / `image-focus` | 入口起点：道路终点、画面中心或主图视觉重心 |
+| `direction` | `forward` / `left` / `right` / `up` / `down` | 擦拭、照片推进和切页的空间方向；`forward` 取下一段行进方向 |
+| `energy` | `calm` / `medium` / `accent` | 入场距离、持续时间与强调强度，和既有 `tempo` 保持一致 |
+| `layout` | `text-first` / `hero-image` / `scattered-cards` / `sequential-cards` | 文字与图片谁先出现、单图主视觉或多图呈现方式 |
+| `exit` | `return-map` / `follow-route` / `soft-dissolve` | 收场回到地图、沿下一段推出或柔和叠化 |
+
+进入、内容和退出分别配置，但规范化时会限制不兼容组合：例如无图节点不能使用 `image-focus`，单图节点不能使用多卡片布局，`photo-cascade` 在无图时降级为 `directional-wipe`。`route-bloom` 保留为旧项目缺字段、任意非法配置或渲染失败时的安全降级；减少动态效果偏好则统一使用 `soft-dissolve`。
 ## 配置契约与数据流
 
 `/api/choreography` 的结果从：
@@ -46,17 +59,24 @@
 ```json
 {
   "tempo": "medium",
-  "transition": { "enter": "photo-cascade", "exit": "soft-dissolve" },
+  "transition": {
+    "enter": "photo-cascade",
+    "anchor": "route-end",
+    "direction": "forward",
+    "energy": "medium",
+    "layout": "scattered-cards",
+    "exit": "follow-route"
+  },
   "phases": [],
   "idle": { "drift": 0.4, "breathe": 0.3 }
 }
 ```
 
-`normalizeChoreography` 负责白名单、默认值和素材数量降级；`compileChoreography` 继续只输出确定性参数。`FlightPlayer` 将外层展示页的 class/样式从固定 `clip-path` 改为按编译结果选择的渲染器。当前的地图预加载保持不变：地图未就绪时，退出阶段继续停留在遮罩状态。
+`normalizeChoreography` 负责每个维度的白名单、默认值、组合兼容性和素材数量降级；`compileChoreography` 继续只输出确定性参数。`FlightPlayer` 将外层展示页的 class/样式从固定 `clip-path` 改为按编译结果选择的渲染器。当前的地图预加载保持不变：地图未就绪时，退出阶段继续停留在遮罩状态。
 
 ## 可见性规则
 
-- 0 图：`directional-wipe` 或 `soft-dissolve` 作用于深色文字页；`photo-cascade` 自动降级为 `route-bloom`。
+- 0 图：`directional-wipe` 或 `soft-dissolve` 作用于深色文字页；`photo-cascade` 自动降级为 `directional-wipe`。
 - 1 图：不再只有不易察觉的呼吸；进入转场至少含一个可见的位移、淡入或方向性遮罩。
 - 2～3 图：图片卡片的错峰入场必须与外层 `photo-cascade` 连贯，不被圆形裁切掩盖。
 - 减少动态效果：强制 `soft-dissolve`，关闭漂移和脉冲，仍保留信息可读性。
