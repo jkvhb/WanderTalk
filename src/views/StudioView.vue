@@ -58,7 +58,7 @@ function imageAutoFillAll() {
 const choreoEligibleCount = computed(() => {
   if (!trip.plan) return 0
   return trip.plan.days.reduce(
-    (n, d) => n + d.waypoints.filter((w) => isContentNode(w) && w.narration && w.images?.length).length,
+    (n, d) => n + d.waypoints.filter((w) => isContentNode(w) && w.narration).length,
     0,
   )
 })
@@ -163,7 +163,7 @@ function startPreview() {
             @click="choreographyAll"
             :disabled="studio.choreoJob.running"
             class="w-full py-1.5 rounded-lg bg-gray-100 text-gray-600 text-sm hover:bg-gray-200 transition disabled:opacity-50"
-          >AI 编排动效（有图节点）</button>
+          >AI 编排动效（有旁白节点）</button>
           <p v-if="studio.choreoJob.running" class="text-[11px] text-gray-500">
             正在编排 {{ studio.choreoJob.done + studio.choreoJob.skipped }}/{{ studio.choreoJob.total }}…
           </p>
@@ -175,7 +175,7 @@ function startPreview() {
             ✓ 已配置 {{ studio.choreoJob.done }} 节点 · 跳过 {{ studio.choreoJob.skipped }}
           </p>
           <p v-else-if="choreoEligibleCount" class="text-[11px] text-gray-400">
-            {{ choreoEligibleCount }} 个节点可编排（有旁白且有图）
+            {{ choreoEligibleCount }} 个节点可编排（有旁白）
           </p>
         </div>
 

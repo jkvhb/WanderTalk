@@ -181,12 +181,12 @@ export const useStudioStore = defineStore('studio', () => {
       day.waypoints.forEach((w, i) => {
         if (!isContentNode(w)) return
         const plain = stripSsml(w.narration)
-        if (!plain || !w.images?.length) return
+        if (!plain) return
         out.push({
           dayNumber: day.dayNumber,
           index: i,
           plain,
-          imageCount: w.images.length,
+          imageCount: w.images?.length ?? 0,
           currentHash: hashKey(plain),
           storedHash: w.choreography?.narrationHash || '',
         })
