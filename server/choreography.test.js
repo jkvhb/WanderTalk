@@ -116,4 +116,30 @@ describe('makeChoreographyGenerator（DeepSeek 批量生成编排配置）', () 
     expect(sysMsg).toContain('next-route direction')
     expect(sysMsg).toContain('calm tends to soft-dissolve')
   })
+  it('prompts text-only nodes to return empty phases and preserves them', async () => {
+    const callLLM = vi.fn(async () => JSON.stringify({ results: [{ index: 8, config: { phases: [] } }] }))
+    const gen = makeChoreographyGenerator({ callLLM })
+
+    const out = await gen({ apiKey: 'sk', nodes: [{ index: 8, narration: 'A text-only stop', imageCount: 0 }] })
+
+    expect(out[0].config.phases).toEqual([])
+    expect(callLLM.mock.calls[0][0].json).toBe(true)
+    const sysMsg = callLLM.mock.calls[0][0].messages.find((message) => message.role === 'system')?.content || ''
+    expect(sysMsg).toContain('when imageCount is 0, return "phases": []')
+  })
+
+  it('rejects markdown-fenced JSON and JSON followed by explanation', async () => {
+    const callLLM = vi
+      .fn()
+      .mockResolvedValueOnce('```json\n{"results":[]}\n```')
+      .mockResolvedValueOnce('{"results":[]}\nThis is the generated choreography.')
+    const gen = makeChoreographyGenerator({ callLLM })
+    const request = { apiKey: 'sk', nodes: [{ index: 0, narration: 'x', imageCount: 1 }] }
+
+    await expect(gen(request)).rejects.toThrow('JSON')
+    await expect(gen(request)).rejects.toThrow('JSON')
+    expect(callLLM.mock.calls).toHaveLength(2)
+    expect(callLLM.mock.calls[0][0].json).toBe(true)
+    expect(callLLM.mock.calls[1][0].json).toBe(true)
+  })
 })
