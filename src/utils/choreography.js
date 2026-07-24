@@ -25,6 +25,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 const clamp01 = (v) => clamp(v, 0, 1)
 
 function num(v, fallback) {
+  if (v == null) return fallback
   const n = Number(v)
   return Number.isFinite(n) ? n : fallback
 }

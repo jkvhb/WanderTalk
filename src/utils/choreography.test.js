@@ -124,6 +124,14 @@ describe('normalizeChoreography', () => {
       breathe: 0,
     })
     expect(normalizeChoreography({ idle: {} }, 2).idle).toEqual({ drift: 0.4, breathe: 0.3 })
+    expect(normalizeChoreography({ idle: { drift: null, breathe: null } }, 2).idle).toEqual({
+      drift: 0.4,
+      breathe: 0.3,
+    })
+    expect(normalizeChoreography({ idle: { drift: 0, breathe: 0 } }, 2).idle).toEqual({
+      drift: 0,
+      breathe: 0,
+    })
     expect(normalizeChoreography({ idle: { drift: 'x', breathe: NaN } }, 2).idle).toEqual({
       drift: 0.4,
       breathe: 0.3,
