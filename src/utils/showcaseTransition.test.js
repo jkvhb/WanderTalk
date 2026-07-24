@@ -117,4 +117,14 @@ describe('compileShowcaseTransition safety mappings', () => {
   it.each([['route-end', '120px 80px'], ['image-focus', '50% 42%'], ['screen-center', '50% 50%']])('maps anchor %s', (anchor, transformOrigin) => expect(compile({ enter: 'layer-unfold', anchor }).style.transformOrigin).toBe(transformOrigin))
   it.each([['calm', 10], ['medium', 14], ['accent', 18]])('maps chapter %s', (energy, distance) => expect(compile({ enter: 'chapter-slide', direction: 'left', energy }).style.transform).toBe(`translate3d(${distance}%, 0, 0)`))
   it.each([['left', 'translate3d(18%, 0, 0)'], ['right', 'translate3d(-18%, 0, 0)'], ['up', 'translate3d(0, 18%, 0)'], ['down', 'translate3d(0, -18%, 0)'], ['forward', 'translate3d(18%, 0, 0)']])('maps chapter direction %s', (direction, transform) => expect(compile({ enter: 'chapter-slide', direction, energy: 'accent' }).style.transform).toBe(transform))
+
+describe('compileShowcaseTransition origin safety', () => {
+  it('ignores inherited origin scalar fields', () => {
+    expect(compileShowcaseTransition({
+      transition: { enter: 'route-bloom' },
+      revealFrac: 1,
+      origin: Object.create({ x: 120, y: 80, maxR: 400 }),
+    })).toEqual({ kind: 'route-bloom', style: { clipPath: 'circle(0px at 0px 0px)' } })
+  })
+})
 })

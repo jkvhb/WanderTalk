@@ -60,9 +60,9 @@ function normalizedTransition(transition) {
 function normalizedOrigin(origin) {
   const source = origin && typeof origin === 'object' && !Array.isArray(origin) ? origin : {}
   return {
-    x: safeNumber(source.x),
-    y: safeNumber(source.y),
-    maxR: Math.max(0, safeNumber(source.maxR)),
+    x: safeNumber(own(source, 'x')),
+    y: safeNumber(own(source, 'y')),
+    maxR: Math.max(0, safeNumber(own(source, 'maxR'))),
   }
 }
 
