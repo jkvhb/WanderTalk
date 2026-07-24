@@ -9,20 +9,40 @@ describe('makeChoreographyGenerator（DeepSeek 批量生成编排配置）', () 
           results: [
             {
               index: 0,
-              tempo: 'lively',
-              phases: [
-                { at: 0, focus: 0, accent: 'none' },
-                { at: 0.5, focus: 1, accent: 'pulse' },
-              ],
-              idle: { drift: 0.6, breathe: 0.4 },
+              config: {
+                tempo: 'lively',
+                transition: {
+                  enter: 'photo-cascade',
+                  anchor: 'image-focus',
+                  direction: 'forward',
+                  energy: 'accent',
+                  layout: 'scattered-cards',
+                  exit: 'follow-route',
+                  unexpected: 'preserve-me',
+                },
+                phases: [
+                  { at: 0, focus: 0, accent: 'none' },
+                  { at: 0.5, focus: 1, accent: 'pulse' },
+                ],
+                idle: { drift: 0.6, breathe: 0.4 },
+              },
             },
           ],
         }),
     })
     const out = await gen({ apiKey: 'sk', nodes: [{ index: 0, narration: '雪山草甸', imageCount: 2 }] })
     expect(out).toHaveLength(1)
-    expect(out[0]).toMatchObject({ index: 0, tempo: 'lively' })
-    expect(out[0].phases[1]).toMatchObject({ at: 0.5, focus: 1, accent: 'pulse' })
+    expect(out[0]).toMatchObject({ index: 0, config: { tempo: 'lively' } })
+    expect(out[0].config.transition).toEqual({
+      enter: 'photo-cascade',
+      anchor: 'image-focus',
+      direction: 'forward',
+      energy: 'accent',
+      layout: 'scattered-cards',
+      exit: 'follow-route',
+      unexpected: 'preserve-me',
+    })
+    expect(out[0].config.phases[1]).toMatchObject({ at: 0.5, focus: 1, accent: 'pulse' })
   })
 
   it('兼容直接返回数组', async () => {
@@ -61,5 +81,39 @@ describe('makeChoreographyGenerator（DeepSeek 批量生成编排配置）', () 
     expect(sysMsg).toContain('lively')
     expect(sysMsg).toContain('phases')
     expect(sysMsg).toContain('idle')
+    expect(sysMsg).toContain('transition')
+    expect(sysMsg).toContain('route-bloom')
+    expect(sysMsg).toContain('chapter-slide')
+    expect(sysMsg).toContain('directional-wipe')
+    expect(sysMsg).toContain('photo-cascade')
+    expect(sysMsg).toContain('soft-dissolve')
+    expect(sysMsg).toContain('layer-unfold')
+    expect(sysMsg).toContain('enter')
+    expect(sysMsg).toContain('anchor')
+    expect(sysMsg).toContain('route-end')
+    expect(sysMsg).toContain('screen-center')
+    expect(sysMsg).toContain('image-focus')
+    expect(sysMsg).toContain('direction')
+    expect(sysMsg).toContain('forward')
+    expect(sysMsg).toContain('left')
+    expect(sysMsg).toContain('right')
+    expect(sysMsg).toContain('up')
+    expect(sysMsg).toContain('down')
+    expect(sysMsg).toContain('energy')
+    expect(sysMsg).toContain('medium')
+    expect(sysMsg).toContain('accent')
+    expect(sysMsg).toContain('layout')
+    expect(sysMsg).toContain('text-first')
+    expect(sysMsg).toContain('hero-image')
+    expect(sysMsg).toContain('scattered-cards')
+    expect(sysMsg).toContain('sequential-cards')
+    expect(sysMsg).toContain('exit')
+    expect(sysMsg).toContain('return-map')
+    expect(sysMsg).toContain('follow-route')
+    expect(sysMsg).toContain('map/road geography')
+    expect(sysMsg).toContain('need images')
+    expect(sysMsg).toContain('text-only stop')
+    expect(sysMsg).toContain('next-route direction')
+    expect(sysMsg).toContain('calm tends to soft-dissolve')
   })
 })

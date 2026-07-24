@@ -12,8 +12,8 @@ function buildChoreographyMessages(nodes) {
     '2) phases：相位数组，按旁白进度切换焦点图片。每项 { "at": 旁白进度比例(0~1，升序，首个必须 0), "focus": 焦点图片下标(0 起，必须小于该节点 imageCount), "accent": "none" | "pulse" }；' +
     '依旁白文本结构分相位（开场/描述/收尾各一段较自然），感叹或亮点句所在相位可用 "pulse"（焦点卡短促强调弹跳）；\n' +
     '3) idle：待机强度 { "drift": 0~1 漂移幅度, "breathe": 0~1 呼吸幅度 }，舒缓文本取小、活泼文本取大；\n' +
-    '4) 只输出 JSON，格式：{"results":[{"index":数字,"tempo":"...","phases":[...],"idle":{...}}]}，' +
-    '原样回填 index，不要输出任何代码、CSS 或额外说明文字。'
+    '4) transition: { "enter": "photo-cascade", "anchor": "route-end", "direction": "forward", "energy": "medium", "layout": "scattered-cards", "exit": "follow-route" }. Allowed literals: enter=route-bloom|directional-wipe|photo-cascade|soft-dissolve|layer-unfold|chapter-slide; anchor=route-end|screen-center|image-focus; direction=forward|left|right|up|down; energy=calm|medium|accent; layout=text-first|hero-image|scattered-cards|sequential-cards; exit=return-map|follow-route|soft-dissolve. route-bloom is for map/road geography; photo-cascade and layer-unfold need images; text-first is for a text-only stop; forward is the next-route direction; calm tends to soft-dissolve. Example config: {"tempo":"medium","transition":{"enter":"photo-cascade","anchor":"route-end","direction":"forward","energy":"medium","layout":"scattered-cards","exit":"follow-route"},"phases":[{"at":0,"focus":0,"accent":"none"}],"idle":{"drift":0.4,"breathe":0.3}};\n' +
+    '5) Output JSON only, with no explanation, code, CSS, or extra text. Format: {"results":[{"index":number,"config":{"tempo":"...","transition":{"enter":"...","anchor":"...","direction":"...","energy":"...","layout":"...","exit":"..."},"phases":[...],"idle":{...}}}]}. Return index unchanged.\n';
   const lines = nodes.map((n) => {
     const count = n.imageCount ?? 0
     return `index=${n.index} | 图片数 imageCount=${count} | 旁白:${n.narration || ''}`
