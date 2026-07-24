@@ -18,6 +18,10 @@ const DAY_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4
 
 const uiError = ref('')
 
+function plainNarration(text) {
+  return (text || '').replace(/<[^>]+>/g, '').trim()
+}
+
 const narratedCount = computed(() => {
   if (!trip.plan) return 0
   return trip.plan.days.reduce((n, d) => n + d.waypoints.filter((w) => isContentNode(w) && w.narration).length, 0)
@@ -58,7 +62,7 @@ function imageAutoFillAll() {
 const choreoEligibleCount = computed(() => {
   if (!trip.plan) return 0
   return trip.plan.days.reduce(
-    (n, d) => n + d.waypoints.filter((w) => isContentNode(w) && w.narration).length,
+    (n, d) => n + d.waypoints.filter((w) => isContentNode(w) && plainNarration(w.narration)).length,
     0,
   )
 })
@@ -175,7 +179,7 @@ function startPreview() {
             ✓ 已配置 {{ studio.choreoJob.done }} 节点 · 跳过 {{ studio.choreoJob.skipped }}
           </p>
           <p v-else-if="choreoEligibleCount" class="text-[11px] text-gray-400">
-            {{ choreoEligibleCount }} 个节点可编排（有旁白）
+            {{ choreoEligibleCount }} 个节点可编排（有旁白节点）
           </p>
         </div>
 
