@@ -157,8 +157,18 @@ const showcaseLayout = computed(() => compiledChoreo.value?.transition?.layout ?
 const textFirstImageVisible = computed(() =>
   showcaseLayout.value === 'text-first' && !!currentImg.value && (showcase.value?.narrationFrac ?? 0) >= 0.55,
 )
-const showcaseTransition = computed(() => {
-  const sc = showcase.value
+const forwardDirection = computed(() => {
+  const stopIndex = showcase.value?.stopIndex
+  const route = stopIndex == null ? null : flight.timeline?.stops?.[stopIndex + 1]?.routeToHere
+  if (!route || route.length < 2) return 'left'
+  const start = route[0]
+  const end = route[route.length - 1]
+  const dx = end[0] - start[0]
+  const dy = end[1] - start[1]
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'right' : 'left'
+  return dy >= 0 ? 'up' : 'down'
+})
+const showcaseTransition = computed(() => {  const sc = showcase.value
   if (!sc) return { kind: 'route-bloom', style: {} }
   return compileShowcaseTransition({
     transition: compiledChoreo.value?.transition ?? {
@@ -167,6 +177,8 @@ const showcaseTransition = computed(() => {
     },
     revealFrac: holdClosingReveal.value ? 1 : sc.revealFrac,
     origin: wipeOrigin.value,
+    forwardDirection: forwardDirection.value,
+    closing: sc.closing,
     reducedMotion: prefersReducedMotion.value,
   })
 })

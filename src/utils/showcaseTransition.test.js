@@ -128,3 +128,23 @@ describe('compileShowcaseTransition origin safety', () => {
   })
 })
 })
+
+describe('compileShowcaseTransition route direction and exit', () => {
+  it('forward 使用播放器传入的下一段路线方向，而不是固定向左', () => {
+    expect(compileShowcaseTransition({
+      transition: { enter: 'directional-wipe', direction: 'forward' },
+      forwardDirection: 'right', revealFrac: 0, origin,
+    })).toEqual({ kind: 'directional-wipe', style: { clipPath: 'inset(0 100% 0 0)' } })
+  })
+
+  it('收场的 soft-dissolve 覆盖入口样式，follow-route 则沿路线方向推出', () => {
+    expect(compileShowcaseTransition({
+      transition: { enter: 'photo-cascade', direction: 'right', energy: 'accent', exit: 'soft-dissolve' },
+      closing: true, revealFrac: 0.5, origin,
+    })).toEqual({ kind: 'soft-dissolve', style: { opacity: 0.5 } })
+    expect(compileShowcaseTransition({
+      transition: { enter: 'photo-cascade', direction: 'right', energy: 'accent', exit: 'follow-route' },
+      closing: true, revealFrac: 0.5, origin,
+    })).toEqual({ kind: 'photo-cascade', style: { opacity: 0.5, transform: 'translate3d(-9%, 0, 0)' } })
+  })
+})

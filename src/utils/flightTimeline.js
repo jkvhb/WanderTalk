@@ -165,12 +165,13 @@ export function sampleAt(timeline, t) {
   // 旁白进度比例（4e 编排相位驱动）：窗口前 0 → 窗口中线性 → 窗口后 1；无语音恒 0
   const narrationFrac =
     scene.audioDuration > 0 ? clamp01((tc - audioStart) / scene.audioDuration) : 0
+  const closing = tc >= scene.end - wipe
   return {
     phase: 'dwell', t: tc,
     camera: boundsCamera(scene.camBefore, o),
     car: null,
     progress: { legIndex: i, frac: 1 },
-    showcase: { stopIndex: i, imageIndex, revealFrac, narrationFrac },
+    showcase: { stopIndex: i, imageIndex, revealFrac, narrationFrac, closing },
     activeStopIndex: i,
     audio: playing ? { stopIndex: i, playing: true, offset: tc - audioStart } : { ...NO_AUDIO },
     altitude: node.altitude ?? null,

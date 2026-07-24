@@ -12,15 +12,10 @@ const DIRECTION_BY_VALUE = {
   right: 'right',
   up: 'up',
   down: 'down',
-  forward: 'left',
 }
 
-const ENERGY_BY_VALUE = {
-  calm: 'calm',
-  medium: 'medium',
-  accent: 'accent',
-}
-
+const ENERGY_BY_VALUE = { calm: 'calm', medium: 'medium', accent: 'accent' }
+const EXIT_BY_VALUE = { 'return-map': 'return-map', 'follow-route': 'follow-route', 'soft-dissolve': 'soft-dissolve' }
 const CASCADE_OFFSET_BY_ENERGY = { calm: 12, medium: 16, accent: 20 }
 const UNFOLD_START_BY_ENERGY = { calm: 0.96, medium: 0.94, accent: 0.92 }
 const SLIDE_DISTANCE_BY_ENERGY = { calm: 10, medium: 14, accent: 18 }
@@ -42,15 +37,21 @@ function formatNumber(value) {
   return Object.is(rounded, -0) ? '0' : String(rounded)
 }
 
-function normalizedTransition(transition) {
+function normalizedDirection(value, forwardDirection) {
+  if (value === 'forward') return DIRECTION_BY_VALUE[forwardDirection] || 'left'
+  return DIRECTION_BY_VALUE[value] || 'left'
+}
+
+function normalizedTransition(transition, forwardDirection) {
   const source = transition && typeof transition === 'object' && !Array.isArray(transition)
     ? transition
     : {}
 
   return {
     kind: KIND_BY_ENTER[own(source, 'enter')] || 'route-bloom',
-    direction: DIRECTION_BY_VALUE[own(source, 'direction')] || 'left',
+    direction: normalizedDirection(own(source, 'direction'), forwardDirection),
     energy: ENERGY_BY_VALUE[own(source, 'energy')] || 'medium',
+    exit: EXIT_BY_VALUE[own(source, 'exit')] || 'return-map',
     anchor: own(source, 'anchor') === 'image-focus' || own(source, 'anchor') === 'screen-center'
       ? own(source, 'anchor')
       : 'route-end',
@@ -88,38 +89,52 @@ function slideTransform(direction, distance) {
   return TRANSFORMS[direction]
 }
 
+function exitStyle(config, reveal, closing) {
+  if (!closing || config.exit === 'return-map') return null
+  if (config.exit === 'soft-dissolve') return { kind: 'soft-dissolve', style: { opacity: reveal } }
+  const distance = (1 - reveal) * SLIDE_DISTANCE_BY_ENERGY[config.energy]
+  return { kind: null, style: { opacity: reveal, transform: slideTransform(config.direction, distance) } }
+}
+
 export function compileShowcaseTransition(input) {
   const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {}
-  const transition = own(source, 'transition')
-  const revealFrac = own(source, 'revealFrac')
-  const origin = own(source, 'origin')
-  const reducedMotion = own(source, 'reducedMotion')
-  const reveal = clamp(safeNumber(revealFrac), 0, 1)
-  const config = normalizedTransition(transition)
-  const point = normalizedOrigin(origin)
-  const kind = reducedMotion === true ? 'soft-dissolve' : config.kind
+  const reveal = clamp(safeNumber(own(source, 'revealFrac')), 0, 1)
+  const config = normalizedTransition(own(source, 'transition'), own(source, 'forwardDirection'))
+  const point = normalizedOrigin(own(source, 'origin'))
+  const reducedMotion = own(source, 'reducedMotion') === true
+  const closing = own(source, 'closing') === true
+  const kind = reducedMotion ? 'soft-dissolve' : config.kind
 
   if (kind === 'route-bloom') {
+    const exit = reducedMotion ? null : exitStyle(config, reveal, closing)
+    if (exit?.kind) return exit
     return {
       kind,
       style: {
         clipPath: `circle(${formatNumber(reveal * point.maxR)}px at ${formatNumber(point.x)}px ${formatNumber(point.y)}px)`,
+        ...(exit?.style || {}),
       },
     }
   }
 
   if (kind === 'directional-wipe') {
-    return { kind, style: { clipPath: wipeClipPath(config.direction, (1 - reveal) * 100) } }
+    const exit = exitStyle(config, reveal, closing)
+    if (exit?.kind) return exit
+    return {
+      kind,
+      style: { clipPath: wipeClipPath(config.direction, (1 - reveal) * 100), ...(exit?.style || {}) },
+    }
   }
 
   if (kind === 'soft-dissolve') return { kind, style: { opacity: reveal } }
 
+  const exit = exitStyle(config, reveal, closing)
+  if (exit?.kind) return exit
+  if (exit?.style) return { kind, style: exit.style }
+
   if (kind === 'photo-cascade') {
     const offset = (1 - reveal) * CASCADE_OFFSET_BY_ENERGY[config.energy]
-    return {
-      kind,
-      style: { opacity: reveal, transform: `translate3d(0, ${formatNumber(offset)}%, 0)` },
-    }
+    return { kind, style: { opacity: reveal, transform: `translate3d(0, ${formatNumber(offset)}%, 0)` } }
   }
 
   if (kind === 'layer-unfold') {
@@ -140,8 +155,5 @@ export function compileShowcaseTransition(input) {
   }
 
   const distance = (1 - reveal) * SLIDE_DISTANCE_BY_ENERGY[config.energy]
-  return {
-    kind: 'chapter-slide',
-    style: { opacity: reveal, transform: slideTransform(config.direction, distance) },
-  }
+  return { kind: 'chapter-slide', style: { opacity: reveal, transform: slideTransform(config.direction, distance) } }
 }

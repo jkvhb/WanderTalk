@@ -125,8 +125,10 @@ describe('sampleAt · 契约 v2', () => {
     expect(sampleAt(tl, dA + 0.0001).showcase.revealFrac).toBeCloseTo(0, 2)
     expect(sampleAt(tl, dA + 0.25).showcase.revealFrac).toBeCloseTo(0.5, 6) // 半程=easeInOutCubic(0.5)
     expect(sampleAt(tl, dA + 0.5).showcase.revealFrac).toBe(1)
+    expect(sampleAt(tl, dA + 0.25).showcase.closing).toBe(false)
     expect(sampleAt(tl, dA + 2).showcase.revealFrac).toBe(1)
     expect(sampleAt(tl, dA + 3.75).showcase.revealFrac).toBeCloseTo(0.5, 6)
+    expect(sampleAt(tl, dA + 3.75).showcase.closing).toBe(true)
   })
 
   it('dwell 相机整段保持进场画面（平移过渡交给下段场景的 easeTo，2026-07-05 手测修订）', () => {
