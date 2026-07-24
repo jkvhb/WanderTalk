@@ -7,6 +7,7 @@ import { createFlightMap } from '../composables/useMapLibre'
 import { getImage } from '../utils/db'
 import { compileChoreography } from '../utils/choreography'
 import { hashString } from '../utils/rand'
+import { compileShowcaseTransition } from '../utils/showcaseTransition'
 
 const emit = defineEmits(['close'])
 const flight = useFlightStore()
@@ -107,14 +108,6 @@ watch(
   () => tryUpdateWipeOrigin(),
 )
 
-const wipeStyle = computed(() => {
-  const sc = showcase.value
-  if (!sc) return null
-  const { x, y, maxR } = wipeOrigin.value
-  const revealFrac = holdClosingReveal.value ? 1 : sc.revealFrac
-  const r = Math.max(0, revealFrac) * (maxR || 0)
-  return { clipPath: `circle(${r.toFixed(1)}px at ${x}px ${y}px)` }
-})
 
 // 旁白正文剥掉 SSML 标签后展示（<break/> <emphasis> 等来自 Phase 3 文案）
 const plainNarration = computed(() => (activeNode.value?.narration || '').replace(/<[^>]+>/g, '').trim())
@@ -141,6 +134,11 @@ watch(
 )
 const currentImg = computed(() => imgUrls.value[showcase.value?.imageIndex ?? 0] || null)
 
+const prefersReducedMotion = ref(false)
+let reducedMotionMedia = null
+function syncReducedMotion(event) {
+  prefersReducedMotion.value = !!event?.matches
+}
 // —— Phase 4e：编排动效（LLM 配参 + 词汇表编译，全部 transform/opacity，卡片 pointer-events:none）——
 // computed 按 activeNode 缓存 = 每站只编译一次；seed 取 narrationHash（生成时的旁白哈希，
 // 十六进制）保证与配置同源，缺失则退回现场旁白哈希——确定性：同节点每次播放动效一致
@@ -155,8 +153,25 @@ const compiledChoreo = computed(() => {
   const seed = hex ? parseInt(hex, 16) >>> 0 : hashString(node.narration || '')
   return compileChoreography(cfg, { imageCount, seed })
 })
+const showcaseLayout = computed(() => compiledChoreo.value?.transition?.layout ?? 'hero-image')
+const showcaseTransition = computed(() => {
+  const sc = showcase.value
+  if (!sc) return { kind: 'route-bloom', style: {} }
+  return compileShowcaseTransition({
+    transition: compiledChoreo.value?.transition ?? {
+      enter: 'route-bloom', anchor: 'route-end', direction: 'forward',
+      energy: 'medium', layout: 'scattered-cards', exit: 'return-map',
+    },
+    revealFrac: holdClosingReveal.value ? 1 : sc.revealFrac,
+    origin: wipeOrigin.value,
+    reducedMotion: prefersReducedMotion.value,
+  })
+})
+
 // 卡片模式：有配置且 ≥2 张图已加载完（异步加载中先回落全屏铺底，不闪半空卡）
-const cardMode = computed(() => compiledChoreo.value?.mode === 'cards')
+const cardMode = computed(() =>
+  compiledChoreo.value?.mode === 'cards' && ['scattered-cards', 'sequential-cards'].includes(showcaseLayout.value),
+)
 // 1 张图 + 有配置：全屏铺底叠加微呼吸（≤2%）
 const fullbleedBreathe = computed(() =>
   compiledChoreo.value?.mode === 'fullbleed' ? compiledChoreo.value.breathe : null,
@@ -236,7 +251,12 @@ function buildAdapter() {
 }
 
 onMounted(async () => {
-  if (!settings.tiandituKey) {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    reducedMotionMedia = window.matchMedia('(prefers-reduced-motion: reduce)')
+    syncReducedMotion(reducedMotionMedia)
+    reducedMotionMedia.addEventListener?.('change', syncReducedMotion)
+    reducedMotionMedia.addListener?.(syncReducedMotion)
+  }  if (!settings.tiandituKey) {
     state.value = 'no-key'
     return
   }
@@ -266,6 +286,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(originRetryId)
   window.removeEventListener('resize', updateWipeOrigin)
+  reducedMotionMedia?.removeEventListener?.('change', syncReducedMotion)
+  reducedMotionMedia?.removeListener?.(syncReducedMotion)
   flight.pause()
   flight.detach()
   stopAudioEl()
@@ -333,11 +355,17 @@ function toggle() {
           海拔 <span class="font-semibold">{{ altitude }}</span> m
         </div>
 
-        <!-- 节点展示页：圆形揭幕（clip-path 由 revealFrac 逐帧驱动，圆心=到站点投影） -->
-        <div v-if="showcase && wipeStyle" class="absolute inset-0 bg-black overflow-hidden" :style="wipeStyle">
+        <!-- 节点展示页：由受限的 AI 转场语法驱动；路线绽放才使用圆形揭幕。 -->
+        <div
+          v-if="showcase"
+          class="showcase-scene absolute inset-0 bg-black overflow-hidden"
+          :class="`showcase-enter-${showcaseTransition.kind}`"
+          :data-transition="showcaseTransition.kind"
+          :style="showcaseTransition.style"
+        >
           <!-- 无编排配置（或图未加载齐）：现状全屏铺底；1 图+配置时叠加微呼吸（≤2%） -->
           <img
-            v-if="!cardMode && currentImg"
+            v-if="!cardMode && showcaseLayout !== 'text-first' && currentImg"
             :src="currentImg"
             class="absolute inset-0 w-full h-full object-cover"
             :class="fullbleedBreathe ? 'choreo-breathe' : ''"
@@ -353,7 +381,11 @@ function toggle() {
               v-for="(card, idx) in compiledChoreo.cards"
               :key="idx"
               class="choreo-card"
-              :class="{ 'is-focus': idx === focusIndex, 'is-dim': focusIndex >= 0 && idx !== focusIndex }"
+              :class="{
+                'is-focus': idx === focusIndex,
+                'is-dim': focusIndex >= 0 && idx !== focusIndex,
+                'is-sequential': showcaseLayout === 'sequential-cards',
+              }"
               :style="cardStyle(card, idx)"
             >
               <div class="choreo-enter">
@@ -527,5 +559,22 @@ function toggle() {
   to {
     transform: scale(var(--breathe-amp));
   }
+}
+/* 展示页入口只由受限的 transition compiler 输出的 transform/opacity/clip-path 驱动。 */
+.showcase-scene {
+  will-change: transform, opacity, clip-path;
+}
+.showcase-enter-soft-dissolve {
+  will-change: opacity;
+}
+.showcase-enter-photo-cascade .choreo-enter {
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+.showcase-enter-layer-unfold {
+  transform-style: preserve-3d;
+}
+.choreo-card.is-sequential.is-dim {
+  opacity: 0.28;
+  transform: translate(-50%, -50%) rotate(var(--rot0)) scale(0.92);
 }
 </style>
