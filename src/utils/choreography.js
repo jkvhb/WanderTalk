@@ -4,6 +4,12 @@
 import { mulberry32 } from './rand'
 
 const TEMPOS = ['calm', 'medium', 'lively']
+const TRANSITION_ENTERS = ['route-bloom', 'directional-wipe', 'photo-cascade', 'soft-dissolve', 'layer-unfold', 'chapter-slide']
+const TRANSITION_ANCHORS = ['route-end', 'screen-center', 'image-focus']
+const TRANSITION_DIRECTIONS = ['forward', 'left', 'right', 'up', 'down']
+const TRANSITION_ENERGIES = ['calm', 'medium', 'accent']
+const TRANSITION_LAYOUTS = ['text-first', 'hero-image', 'scattered-cards', 'sequential-cards']
+const TRANSITION_EXITS = ['return-map', 'follow-route', 'soft-dissolve']
 
 // tempo → 入场错峰间隔/时长、漂移与呼吸周期（秒）
 const TEMPO_PARAMS = {
@@ -24,6 +30,51 @@ function num(v, fallback) {
 }
 
 // 均分相位：N 张图 → at=i/N、focus=i（无 LLM 配置时的兜底节奏）
+function transitionLayout(imageCount) {
+  return imageCount >= 2 ? 'scattered-cards' : imageCount === 1 ? 'hero-image' : 'text-first'
+}
+
+function defaultTransition(imageCount) {
+  if (imageCount <= 0) {
+    return { enter: 'directional-wipe', anchor: 'route-end', direction: 'forward', energy: 'medium', layout: 'text-first', exit: 'follow-route' }
+  }
+  if (imageCount === 1) {
+    return { enter: 'photo-cascade', anchor: 'image-focus', direction: 'forward', energy: 'medium', layout: 'hero-image', exit: 'follow-route' }
+  }
+  return { enter: 'photo-cascade', anchor: 'route-end', direction: 'forward', energy: 'medium', layout: 'scattered-cards', exit: 'follow-route' }
+}
+
+function legacyTransition(imageCount) {
+  return { enter: 'route-bloom', anchor: 'route-end', direction: 'forward', energy: 'medium', layout: transitionLayout(imageCount), exit: 'return-map' }
+}
+
+function normalizeTransition(raw, imageCount) {
+  const fallback = legacyTransition(imageCount)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return reduceTransition(fallback, imageCount)
+
+  const transition = {
+    enter: TRANSITION_ENTERS.includes(raw.enter) ? raw.enter : fallback.enter,
+    anchor: TRANSITION_ANCHORS.includes(raw.anchor) ? raw.anchor : fallback.anchor,
+    direction: TRANSITION_DIRECTIONS.includes(raw.direction) ? raw.direction : fallback.direction,
+    energy: TRANSITION_ENERGIES.includes(raw.energy) ? raw.energy : fallback.energy,
+    layout: TRANSITION_LAYOUTS.includes(raw.layout) ? raw.layout : fallback.layout,
+    exit: TRANSITION_EXITS.includes(raw.exit) ? raw.exit : fallback.exit,
+  }
+  return reduceTransition(transition, imageCount)
+}
+
+function reduceTransition(transition, imageCount) {
+  const reduced = { ...transition }
+  if (imageCount < 2 && reduced.enter === 'layer-unfold') reduced.enter = 'photo-cascade'
+  if (imageCount <= 0) {
+    if (reduced.anchor === 'image-focus') reduced.anchor = 'route-end'
+    if (reduced.enter === 'photo-cascade') reduced.enter = 'directional-wipe'
+    if (['hero-image', 'scattered-cards', 'sequential-cards'].includes(reduced.layout)) reduced.layout = 'text-first'
+  } else if (imageCount === 1 && ['scattered-cards', 'sequential-cards'].includes(reduced.layout)) {
+    reduced.layout = 'hero-image'
+  }
+  return reduced
+}
 function evenPhases(imageCount) {
   const n = Math.max(1, imageCount | 0)
   return Array.from({ length: n }, (_, i) => ({ at: i / n, focus: i, accent: 'none' }))
@@ -34,6 +85,7 @@ export function defaultChoreography(imageCount) {
     tempo: 'medium',
     phases: evenPhases(imageCount),
     idle: { drift: 0.4, breathe: 0.3 },
+    transition: defaultTransition(imageCount),
   }
 }
 
@@ -71,16 +123,17 @@ export function normalizeChoreography(raw, imageCount) {
     phases = evenPhases(imageCount)
   }
 
-  return { tempo, phases, idle }
+  const transition = normalizeTransition(raw.transition, imageCount)
+
+  return { tempo, phases, idle, transition }
 }
 
 // 编译：配置 + imageCount + seed → 每张卡的确定性动效参数（纯函数，无 Math.random）。
 // 输出只含 transform/opacity 语义的参数，组件用 CSS 动画消费。
 export function compileChoreography(config, { imageCount, seed = 1 } = {}) {
   const count = imageCount | 0
-  if (count <= 0) return { mode: 'none' }
-
   const cfg = normalizeChoreography(config, count)
+  if (count <= 0) return { mode: 'none', transition: cfg.transition }
   const tp = TEMPO_PARAMS[cfg.tempo]
   const rand = mulberry32(seed)
 
@@ -94,6 +147,7 @@ export function compileChoreography(config, { imageCount, seed = 1 } = {}) {
       },
       phases: cfg.phases,
       tempo: cfg.tempo,
+      transition: cfg.transition,
     }
   }
 
@@ -140,5 +194,5 @@ export function compileChoreography(config, { imageCount, seed = 1 } = {}) {
     })
   }
 
-  return { mode: 'cards', cards, phases: cfg.phases, tempo: cfg.tempo }
+  return { mode: 'cards', cards, phases: cfg.phases, tempo: cfg.tempo, transition: cfg.transition }
 }

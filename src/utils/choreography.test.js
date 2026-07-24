@@ -3,6 +3,17 @@ import { normalizeChoreography, defaultChoreography, compileChoreography } from 
 import { hashString } from './rand'
 
 describe('defaultChoreography', () => {
+  it('adds a complete transition default based on image count', () => {
+    expect(defaultChoreography(0).transition).toEqual({
+      enter: 'directional-wipe', anchor: 'route-end', direction: 'forward', energy: 'medium', layout: 'text-first', exit: 'follow-route',
+    })
+    expect(defaultChoreography(1).transition).toEqual({
+      enter: 'photo-cascade', anchor: 'image-focus', direction: 'forward', energy: 'medium', layout: 'hero-image', exit: 'follow-route',
+    })
+    expect(defaultChoreography(2).transition).toEqual({
+      enter: 'photo-cascade', anchor: 'route-end', direction: 'forward', energy: 'medium', layout: 'scattered-cards', exit: 'follow-route',
+    })
+  })
   it('相位均分：3 张图 → at 0/⅓/⅔，focus 依次 0/1/2，accent 全 none', () => {
     const d = defaultChoreography(3)
     expect(d.tempo).toBe('medium')
@@ -26,6 +37,38 @@ describe('defaultChoreography', () => {
 })
 
 describe('normalizeChoreography', () => {
+  it('uses route-bloom for saved configurations that lack transition', () => {
+    expect(normalizeChoreography({ tempo: 'calm' }, 2).transition).toEqual({
+      enter: 'route-bloom', anchor: 'route-end', direction: 'forward', energy: 'medium', layout: 'scattered-cards', exit: 'return-map',
+    })
+  })
+
+  it('replaces hostile transition strings with safe values', () => {
+    expect(normalizeChoreography({
+      transition: { enter: 'url(javascript:alert(1))', anchor: '<script>', direction: 'translateX(100vw)', energy: 'var(--unsafe)', layout: 'position:fixed', exit: 'expression(alert(1))' },
+    }, 2).transition).toEqual({
+      enter: 'route-bloom', anchor: 'route-end', direction: 'forward', energy: 'medium', layout: 'scattered-cards', exit: 'return-map',
+    })
+  })
+
+  it('normalizes partial transition objects field-by-field', () => {
+    expect(normalizeChoreography({ transition: { enter: 'soft-dissolve', direction: 'left' } }, 1).transition).toEqual({
+      enter: 'soft-dissolve', anchor: 'route-end', direction: 'left', energy: 'medium', layout: 'hero-image', exit: 'return-map',
+    })
+  })
+
+  it('reduces transitions to available zero- and single-image capabilities', () => {
+    expect(normalizeChoreography({
+      transition: { enter: 'photo-cascade', anchor: 'image-focus', direction: 'down', energy: 'accent', layout: 'hero-image', exit: 'soft-dissolve' },
+    }, 0).transition).toEqual({
+      enter: 'directional-wipe', anchor: 'route-end', direction: 'down', energy: 'accent', layout: 'text-first', exit: 'soft-dissolve',
+    })
+    expect(normalizeChoreography({
+      transition: { enter: 'layer-unfold', anchor: 'image-focus', direction: 'right', energy: 'calm', layout: 'sequential-cards', exit: 'follow-route' },
+    }, 1).transition).toEqual({
+      enter: 'photo-cascade', anchor: 'image-focus', direction: 'right', energy: 'calm', layout: 'hero-image', exit: 'follow-route',
+    })
+  })
   it('null/非对象/垃圾输入 → 默认配置', () => {
     expect(normalizeChoreography(null, 3)).toEqual(defaultChoreography(3))
     expect(normalizeChoreography('garbage', 3)).toEqual(defaultChoreography(3))
@@ -93,7 +136,12 @@ describe('compileChoreography', () => {
   const seed = hashString('稻城亚丁的旁白文本')
 
   it('0 张图 / imageCount 缺失 → mode none', () => {
-    expect(compileChoreography(cfg, { imageCount: 0, seed }).mode).toBe('none')
+    expect(compileChoreography(cfg, { imageCount: 0, seed })).toEqual({
+      mode: 'none',
+      transition: {
+        enter: 'directional-wipe', anchor: 'route-end', direction: 'forward', energy: 'medium', layout: 'text-first', exit: 'follow-route',
+      },
+    })
     expect(compileChoreography(cfg, { seed }).mode).toBe('none')
   })
 
