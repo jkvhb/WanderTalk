@@ -154,6 +154,9 @@ const compiledChoreo = computed(() => {
   return compileChoreography(cfg, { imageCount, seed })
 })
 const showcaseLayout = computed(() => compiledChoreo.value?.transition?.layout ?? 'hero-image')
+const textFirstImageVisible = computed(() =>
+  showcaseLayout.value === 'text-first' && !!currentImg.value && (showcase.value?.narrationFrac ?? 0) >= 0.55,
+)
 const showcaseTransition = computed(() => {
   const sc = showcase.value
   if (!sc) return { kind: 'route-bloom', style: {} }
@@ -197,6 +200,9 @@ const currentPhase = computed(() =>
   phaseIndex.value >= 0 ? compiledChoreo.value?.phases?.[phaseIndex.value] ?? null : null,
 )
 const focusIndex = computed(() => currentPhase.value?.focus ?? -1)
+const displayFocusIndex = computed(() =>
+  showcaseLayout.value === 'sequential-cards' ? Math.max(0, focusIndex.value) : focusIndex.value,
+)
 
 // pulse 强调：相位切换瞬间一次性小弹跳——交替 a/b 类名重启同款动画
 const pulseFlip = ref(false)
@@ -210,7 +216,7 @@ function cardStyle(card, idx) {
   return {
     left: card.base.xPct.toFixed(2) + '%',
     top: card.base.yPct.toFixed(2) + '%',
-    zIndex: idx === focusIndex.value ? 40 : card.base.z,
+    zIndex: idx === displayFocusIndex.value ? 40 : card.base.z,
     '--rot0': card.base.rotDeg.toFixed(2) + 'deg',
     '--dx': card.drift.dxPct.toFixed(2) + '%',
     '--dy': card.drift.dyPct.toFixed(2) + '%',
@@ -359,13 +365,13 @@ function toggle() {
         <div
           v-if="showcase"
           class="showcase-scene absolute inset-0 bg-black overflow-hidden"
-          :class="`showcase-enter-${showcaseTransition.kind}`"
+          :class="[`showcase-enter-${showcaseTransition.kind}`, { 'reduce-motion': prefersReducedMotion }]"
           :data-transition="showcaseTransition.kind"
           :style="showcaseTransition.style"
         >
           <!-- 无编排配置（或图未加载齐）：现状全屏铺底；1 图+配置时叠加微呼吸（≤2%） -->
           <img
-            v-if="!cardMode && showcaseLayout !== 'text-first' && currentImg"
+            v-if="!cardMode && (showcaseLayout !== 'text-first' || textFirstImageVisible) && currentImg"
             :src="currentImg"
             class="absolute inset-0 w-full h-full object-cover"
             :class="fullbleedBreathe ? 'choreo-breathe' : ''"
@@ -382,9 +388,11 @@ function toggle() {
               :key="idx"
               class="choreo-card"
               :class="{
-                'is-focus': idx === focusIndex,
-                'is-dim': focusIndex >= 0 && idx !== focusIndex,
+                'is-focus': idx === displayFocusIndex,
+                'is-dim': displayFocusIndex >= 0 && idx !== displayFocusIndex,
                 'is-sequential': showcaseLayout === 'sequential-cards',
+                'is-sequential-past': showcaseLayout === 'sequential-cards' && idx < displayFocusIndex,
+                'is-sequential-hidden': showcaseLayout === 'sequential-cards' && idx > displayFocusIndex,
               }"
               :style="cardStyle(card, idx)"
             >
@@ -392,7 +400,7 @@ function toggle() {
                 <div class="choreo-drift">
                   <div
                     class="choreo-pulse"
-                    :class="idx === focusIndex && currentPhase?.accent === 'pulse' ? (pulseFlip ? 'pulse-a' : 'pulse-b') : ''"
+                    :class="idx === displayFocusIndex && currentPhase?.accent === 'pulse' ? (pulseFlip ? 'pulse-a' : 'pulse-b') : ''"
                   >
                     <img v-if="imgUrls[idx]" :src="imgUrls[idx]" class="choreo-img choreo-breathe" alt="" />
                   </div>
@@ -423,7 +431,7 @@ function toggle() {
           </div>
 
           <!-- 缩略图列只在非卡片模式显示（卡片本身就是图） -->
-          <div v-if="imgUrls.length > 1 && !cardMode" class="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
+          <div v-if="imgUrls.length > 1 && !cardMode && showcaseLayout !== 'text-first'" class="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
             <div
               v-for="(u, idx) in imgUrls"
               :key="u"
@@ -576,5 +584,20 @@ function toggle() {
 .choreo-card.is-sequential.is-dim {
   opacity: 0.28;
   transform: translate(-50%, -50%) rotate(var(--rot0)) scale(0.92);
+}
+/* 顺序卡片按 narrationFrac 逐张推进：过去卡退后，未来卡保持不可见但不卸载。 */
+.choreo-card.is-sequential.is-sequential-past {
+  opacity: 0.18;
+  transform: translate(-50%, -50%) rotate(var(--rot0)) scale(0.86);
+}
+.choreo-card.is-sequential.is-sequential-hidden {
+  opacity: 0;
+  transform: translate(-50%, calc(-50% + 14px)) rotate(var(--rot0)) scale(0.88);
+}
+/* 系统减少动态效果时只保留 revealFrac 驱动的柔和叠化，停止内部自走动画。 */
+.reduce-motion,
+.reduce-motion * {
+  animation: none !important;
+  transition: none !important;
 }
 </style>
