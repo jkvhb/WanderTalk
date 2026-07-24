@@ -1,6 +1,7 @@
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { createCarElement } from '../assets/carMarker'
+import { cameraTransitionFor, capCameraZoom } from '../utils/cameraTransition'
 
 // 天地图栅格瓦片（DataServer，Web Mercator "_w"）。MapLibre 不支持 {s}，手动展开子域 t0~t7。
 // 用 DataServer 端点（参数少、最常用、最稳），img_w=影像、cia_w=中文注记。
@@ -136,7 +137,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
       const short = Math.min(container.clientWidth || 0, container.clientHeight || 0)
       let fitted = null
       try {
-        // 注：cameraForBounds 按 bearing=0 平面拟合；pitch 由 jumpTo/easeTo 附加，
+        // 注：cameraForBounds 按 bearing=0 平面拟合；pitch 由 jumpTo/flyTo 附加，
         // 25° 俯仰的形变靠 padFrac 外扩兜住（手测可调 boundsPadFrac）。
         fitted = map.cameraForBounds(cam.bounds, { padding: Math.round(short * (cam.padFrac ?? 0.15)) })
       } catch {
@@ -145,7 +146,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
       if (!fitted) return
       const target = {
         center: fitted.center,
-        zoom: fitted.zoom,
+        zoom: capCameraZoom(fitted.zoom, { max: cam.maxZoom ?? 11.5 }),
         pitch: cam.pitch ?? 25,
         bearing: cam.bearing ?? 0,
         padding: { top: 0, bottom: 0, left: 0, right: 0 },
@@ -153,11 +154,12 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
       // 滑动时长由时间轴按场景给出（fly=min(3s, 段时长×70%)、outro=3s、intro/dwell 缺省瞬时）；
       // 首个相机/resize 重取景一律直接跳
       const easeMs = cam.easeMs ?? 0
-      if (animate && lastBoundsCam && easeMs > 0) {
-        map.easeTo({ ...target, duration: easeMs, essential: true })
-      } else {
-        map.jumpTo(target)
-      }
+      const transition = cameraTransitionFor(target, {
+        animate,
+        hasPrevious: !!lastBoundsCam,
+        duration: easeMs,
+      })
+      map[transition.method](transition.options)
       lastBoundsSceneId = cam.sceneId ?? null
       lastBoundsCam = cam
       return
@@ -288,6 +290,33 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     return { x: Math.round(p.x), y: Math.round(p.y) }
   }
 
+  // ?????????????????????????????????
+  // ???/???? resolve(false)????????????????????
+  function waitForTiles({ timeoutMs = 2500 } = {}) {
+    return new Promise((resolve) => {
+      if (!map) {
+        resolve(false)
+        return
+      }
+      if (map.areTilesLoaded?.()) {
+        resolve(true)
+        return
+      }
+      let settled = false
+      let timer = null
+      const finish = (ready) => {
+        if (settled) return
+        settled = true
+        if (timer != null) clearTimeout(timer)
+        try { map.off?.('idle', onIdle) } catch { /* ignore */ }
+        resolve(ready)
+      }
+      const onIdle = () => finish(Boolean(map.areTilesLoaded?.() ?? true))
+      try { map.on?.('idle', onIdle) } catch { finish(false); return }
+      timer = setTimeout(() => finish(false), Math.max(0, timeoutMs))
+    })
+  }
+
   function destroy() {
     destroyed = true
     try {
@@ -316,6 +345,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     project,
     setCar,
     setProgress,
+    waitForTiles,
     destroy,
   }
 }

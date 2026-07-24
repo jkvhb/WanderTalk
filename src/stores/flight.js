@@ -6,6 +6,7 @@ import { getCachedAudio } from '../utils/db'
 import { collectNarratedStops, computeTotalDistance } from '../utils/flightStops'
 import { buildFlightTimeline, sampleAt } from '../utils/flightTimeline'
 import { formatDistance } from '../utils/format'
+import { validatePlan } from '../utils/planValidation'
 
 export const useFlightStore = defineStore('flight', () => {
   const timeline = ref(null)
@@ -31,6 +32,11 @@ export const useFlightStore = defineStore('flight', () => {
     const trip = useTripStore()
     if (!trip.plan) {
       error.value = '还没有路书'
+      return false
+    }
+    const validationIssues = validatePlan(trip.plan)
+    if (validationIssues.length) {
+      error.value = `路书校验未通过：${validationIssues[0].message}`
       return false
     }
     const stops0 = collectNarratedStops(trip.plan)
@@ -126,6 +132,15 @@ export const useFlightStore = defineStore('flight', () => {
     if (typeof requestAnimationFrame === 'undefined') return // node 测试环境：靠手动 tick
     let prev = typeof performance !== 'undefined' ? performance.now() : Date.now()
     const step = (ts) => {
+      // 长帧探针（仅 dev）：>120ms 记下时间轴上下文，定位"卡顿发生在哪个场景/事件"。
+      // 切后台再回来会出现一条巨长帧，属正常噪音
+      if (import.meta.env.DEV && ts - prev > 120) {
+        const s = sample.value
+        console.warn(
+          `[FlightPerf] 长帧 ${Math.round(ts - prev)}ms @ t=${t.value.toFixed(1)}s(${Math.floor(t.value / 60)}:${String(Math.floor(t.value % 60)).padStart(2, '0')}) ` +
+            `phase=${s?.phase} stop=${s?.activeStopIndex} reveal=${s?.showcase?.revealFrac?.toFixed(2) ?? '-'} narr=${s?.showcase?.narrationFrac?.toFixed(2) ?? '-'}`,
+        )
+      }
       tick((ts - prev) / 1000)
       prev = ts
       if (playing.value) rafId = requestAnimationFrame(step)

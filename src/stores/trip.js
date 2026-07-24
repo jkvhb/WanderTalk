@@ -2,21 +2,53 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { preset318 } from '../data/preset318'
 import { preset318Narration } from '../data/preset318Narration'
+import { isContentNode } from '../utils/contentNode'
 
-// 单天结构归一化：保证 dayNumber 连续、segments 字段存在。
-function normalizeDay(day, i) {
+// 单天结构归一化：保证 dayNumber 连续、路线元数据完整、segments 字段存在。
+function isRecord(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function cloneJsonValue(value) {
+  if (Array.isArray(value)) return value.map(cloneJsonValue)
+  if (!isRecord(value)) return value
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, cloneJsonValue(entry)]),
+  )
+}
+
+function normalizeWaypoint(w) {
+  if (!isRecord(w)) return null
+  const waypoint = cloneJsonValue(w)
   return {
+    ...waypoint,
+    placeId: waypoint.placeId ?? '',
+    narration: waypoint.narration ?? '',
+    prevNarration: waypoint.prevNarration ?? '',
+    narrate: waypoint.narrate ?? true,
+    roles: Array.isArray(waypoint.roles) ? waypoint.roles : ['route'],
+    routeType: waypoint.routeType ?? 'main',
+    source: waypoint.source ?? null,
+    address: waypoint.address ?? '',
+    note: waypoint.note ?? '',
+    images: Array.isArray(waypoint.images) ? waypoint.images : [],
+    choreography: waypoint.choreography ?? null,
+  }
+}
+
+function normalizeDay(day, i) {
+  const source = isRecord(day) ? day : {}
+  const normalized = cloneJsonValue(source)
+  return {
+    ...normalized,
     dayNumber: i + 1,
-    overnight: day.overnight ?? '',
-    waypoints: (day.waypoints ?? []).map((w) => ({
-      ...w,
-      narration: w.narration ?? '',
-      prevNarration: w.prevNarration ?? '',
-      address: w.address ?? '',
-      note: w.note ?? '',
-      images: Array.isArray(w.images) ? w.images : [],
-    })),
-    segments: day.segments ?? null,
+    overnight: normalized.overnight ?? '',
+    overnightPlaceId: normalized.overnightPlaceId ?? '',
+    alternatives: Array.isArray(normalized.alternatives) ? normalized.alternatives : [],
+    waypoints: Array.isArray(source.waypoints)
+      ? source.waypoints.map(normalizeWaypoint).filter(Boolean)
+      : [],
+    segments: normalized.segments ?? null,
   }
 }
 
@@ -82,7 +114,9 @@ export const useTripStore = defineStore('trip', () => {
   function addWaypoint(dayNumber, wp) {
     const day = findDay(dayNumber)
     if (!day) return
-    day.waypoints.push({ ...wp })
+    const waypoint = normalizeWaypoint(wp)
+    if (!waypoint) return
+    day.waypoints.push(waypoint)
     day.segments = null
   }
 
@@ -91,7 +125,9 @@ export const useTripStore = defineStore('trip', () => {
     const day = findDay(dayNumber)
     if (!day) return
     const i = Math.max(0, Math.min(index, day.waypoints.length))
-    day.waypoints.splice(i, 0, { ...wp })
+    const waypoint = normalizeWaypoint(wp)
+    if (!waypoint) return
+    day.waypoints.splice(i, 0, waypoint)
     day.segments = null
   }
 
@@ -154,7 +190,9 @@ export const useTripStore = defineStore('trip', () => {
   function addImage(dayNumber, index, imageId) {
     const day = findDay(dayNumber)
     const wp = day?.waypoints[index]
-    if (wp && !wp.images.includes(imageId)) wp.images.push(imageId)
+    if (!wp) return
+    if (!Array.isArray(wp.images)) wp.images = []
+    if (!wp.images.includes(imageId)) wp.images.push(imageId)
   }
 
   function removeImage(dayNumber, index, imageId) {
@@ -167,6 +205,13 @@ export const useTripStore = defineStore('trip', () => {
     const day = findDay(dayNumber)
     const wp = day?.waypoints[index]
     if (wp) wp.images = [...ids]
+  }
+
+  // Phase 4e：编排动效配置（narrationHash 用于幂等——旁白没改的节点跳过重新生成）
+  function setChoreography(dayNumber, index, { config, narrationHash }) {
+    const day = findDay(dayNumber)
+    const wp = day?.waypoints[index]
+    if (wp) wp.choreography = { config, narrationHash }
   }
 
   function setVoice(slug) {
@@ -182,7 +227,7 @@ export const useTripStore = defineStore('trip', () => {
     for (const day of plan.value.days) {
       for (const wp of day.waypoints) {
         const text = preset318Narration[wp.name]
-        if (text) wp.narration = text
+        if (isContentNode(wp) && text) wp.narration = text
       }
     }
   }
@@ -235,6 +280,7 @@ export const useTripStore = defineStore('trip', () => {
     addImage,
     removeImage,
     setImages,
+    setChoreography,
     setVoice,
     setRate,
     loadPresetNarration,

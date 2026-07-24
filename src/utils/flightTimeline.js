@@ -15,10 +15,11 @@ const DEFAULTS = {
   outro: { lines: [] },
 }
 
-// 旅行段时长随距离：clamp(d_km/50, 2, 6) 秒；距离缺失/为 0 用兜底
+// 旅行段时长随距离：clamp(d_km/30, 4, 10) 秒；距离缺失/为 0 用兜底
+// （2026-07-05 手测：原 clamp(d/50,2,6) 的小车段偏短，整体上调 ~1.7 倍）
 export function flyDurationForKm(dKm, fallback = 2.5) {
   if (!(dKm > 0)) return fallback
-  return Math.min(6, Math.max(2, dKm / 50))
+  return Math.min(10, Math.max(4, dKm / 30))
 }
 
 // stops: [{ node, audioDuration, routeToHere }]（有序，首个 routeToHere 通常为 []）
@@ -80,7 +81,7 @@ function sceneAt(timeline, tc) {
 const NO_AUDIO = { stopIndex: -1, playing: false, offset: 0 }
 
 // 包围盒式相机：adapter 按 sceneId 记忆化 cameraForBounds，场景内相机静止（零抖动的根）。
-// easeMs>0 时场景切换用 easeTo 可见滑动；缺省=瞬时定位（intro/dwell，seek 不拖泥带水）
+// easeMs>0 时场景切换用 flyTo 可见飞行；缺省=瞬时定位（intro/dwell，seek 不拖泥带水）
 function boundsCamera(entry, o, easeMs) {
   return {
     kind: 'bounds',
@@ -161,12 +162,15 @@ export function sampleAt(timeline, t) {
   const playing = scene.audioDuration > 0 && tc >= audioStart && tc < audioStart + scene.audioDuration
   const imgCount = node.images?.length ?? 0
   const imageIndex = imgCount > 0 ? Math.min(imgCount - 1, Math.floor(p * imgCount)) : 0
+  // 旁白进度比例（4e 编排相位驱动）：窗口前 0 → 窗口中线性 → 窗口后 1；无语音恒 0
+  const narrationFrac =
+    scene.audioDuration > 0 ? clamp01((tc - audioStart) / scene.audioDuration) : 0
   return {
     phase: 'dwell', t: tc,
     camera: boundsCamera(scene.camBefore, o),
     car: null,
     progress: { legIndex: i, frac: 1 },
-    showcase: { stopIndex: i, imageIndex, revealFrac },
+    showcase: { stopIndex: i, imageIndex, revealFrac, narrationFrac },
     activeStopIndex: i,
     audio: playing ? { stopIndex: i, playing: true, offset: tc - audioStart } : { ...NO_AUDIO },
     altitude: node.altitude ?? null,

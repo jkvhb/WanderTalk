@@ -23,12 +23,13 @@ function twoStops() {
 // 时间轴：intro 0-3 | dwell A 3-7（0.5+2+1+0.5）| fly 7-(7+flyDur) | dwell B 5s | outro 4
 
 describe('flyDurationForKm', () => {
-  it('clamp(d/50, 2, 6)：100km=2s、150km=3s、200km=4s、600km 封顶 6s、30km 下限 2s', () => {
-    expect(flyDurationForKm(100)).toBe(2)
-    expect(flyDurationForKm(150)).toBe(3)
-    expect(flyDurationForKm(200)).toBe(4)
-    expect(flyDurationForKm(600)).toBe(6)
-    expect(flyDurationForKm(30)).toBe(2)
+  it('clamp(d/30, 4, 10)：150km=5s、180km=6s、240km=8s、600km 封顶 10s、60km 下限 4s', () => {
+    expect(flyDurationForKm(150)).toBe(5)
+    expect(flyDurationForKm(180)).toBe(6)
+    expect(flyDurationForKm(240)).toBe(8)
+    expect(flyDurationForKm(600)).toBe(10)
+    expect(flyDurationForKm(60)).toBe(4)
+    expect(flyDurationForKm(100)).toBe(4) // 100/30≈3.33 → 下限兜住
   })
   it('距离缺失/为 0 用兜底值', () => {
     expect(flyDurationForKm(0, 2.5)).toBe(2.5)
@@ -146,6 +147,24 @@ describe('sampleAt · 契约 v2', () => {
     expect(sampleAt(tl, 4).progress).toEqual({ legIndex: 0, frac: 1 })
     expect(sampleAt(tl, dwellBStart + 0.5).showcase.imageIndex).toBe(0) // p=0.1
     expect(sampleAt(tl, dwellBStart + 4.4).showcase.imageIndex).toBe(1) // p=0.88
+  })
+
+  it('narrationFrac：语音窗口前 0、窗口中=进度比例、窗口后 1（4e 相位驱动）', () => {
+    // dwell A：3~7，audioStart=3.5，audioDuration=2 → 窗口 3.5~5.5
+    expect(sampleAt(tl, 3.2).showcase.narrationFrac).toBe(0) // 揭幕期间未开讲
+    expect(sampleAt(tl, 4.5).showcase.narrationFrac).toBeCloseTo(0.5, 6) // (4.5-3.5)/2
+    expect(sampleAt(tl, 5.0).showcase.narrationFrac).toBeCloseTo(0.75, 6)
+    expect(sampleAt(tl, 6.0).showcase.narrationFrac).toBe(1) // 讲完后保持 1
+  })
+
+  it('narrationFrac：无语音（audioDuration=0）恒为 0', () => {
+    const stops = twoStops()
+    stops[0].audioDuration = 0
+    const tlNoAudio = buildFlightTimeline(stops, OPTS)
+    // dwell A 变为 0.5+0+1+0.5=2s（3~5），整段 narrationFrac 恒 0
+    expect(sampleAt(tlNoAudio, 3.2).showcase.narrationFrac).toBe(0)
+    expect(sampleAt(tlNoAudio, 4.0).showcase.narrationFrac).toBe(0)
+    expect(sampleAt(tlNoAudio, 4.8).showcase.narrationFrac).toBe(0)
   })
 
   it('outro：全程总览 + 片尾 + 全程走完的上色态', () => {
