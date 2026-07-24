@@ -25,6 +25,10 @@ const CASCADE_OFFSET_BY_ENERGY = { calm: 12, medium: 16, accent: 20 }
 const UNFOLD_START_BY_ENERGY = { calm: 0.96, medium: 0.94, accent: 0.92 }
 const SLIDE_DISTANCE_BY_ENERGY = { calm: 10, medium: 14, accent: 18 }
 
+function own(source, key) {
+  return Object.hasOwn(source, key) ? source[key] : undefined
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
@@ -44,11 +48,11 @@ function normalizedTransition(transition) {
     : {}
 
   return {
-    kind: KIND_BY_ENTER[source.enter] || 'route-bloom',
-    direction: DIRECTION_BY_VALUE[source.direction] || 'left',
-    energy: ENERGY_BY_VALUE[source.energy] || 'medium',
-    anchor: source.anchor === 'image-focus' || source.anchor === 'screen-center'
-      ? source.anchor
+    kind: KIND_BY_ENTER[own(source, 'enter')] || 'route-bloom',
+    direction: DIRECTION_BY_VALUE[own(source, 'direction')] || 'left',
+    energy: ENERGY_BY_VALUE[own(source, 'energy')] || 'medium',
+    anchor: own(source, 'anchor') === 'image-focus' || own(source, 'anchor') === 'screen-center'
+      ? own(source, 'anchor')
       : 'route-end',
   }
 }
@@ -84,7 +88,12 @@ function slideTransform(direction, distance) {
   return TRANSFORMS[direction]
 }
 
-export function compileShowcaseTransition({ transition, revealFrac, origin, reducedMotion } = {}) {
+export function compileShowcaseTransition(input) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {}
+  const transition = own(source, 'transition')
+  const revealFrac = own(source, 'revealFrac')
+  const origin = own(source, 'origin')
+  const reducedMotion = own(source, 'reducedMotion')
   const reveal = clamp(safeNumber(revealFrac), 0, 1)
   const config = normalizedTransition(transition)
   const point = normalizedOrigin(origin)

@@ -99,3 +99,22 @@ describe('compileShowcaseTransition', () => {
     })
   })
 })
+
+describe('compileShowcaseTransition safety mappings', () => {
+  const compile = (transition) => compileShowcaseTransition({ transition, revealFrac: 0, origin })
+  it('falls back safely for null input', () => {
+    expect(compileShowcaseTransition(null)).toEqual({ kind: 'route-bloom', style: { clipPath: 'circle(0px at 0px 0px)' } })
+  })
+  it('ignores inherited transition kinds', () => {
+    expect(compile({ ...Object.create({ enter: 'chapter-slide' }) })).toEqual({ kind: 'route-bloom', style: { clipPath: 'circle(0px at 120px 80px)' } })
+    expect(compileShowcaseTransition({ transition: Object.create({ enter: 'chapter-slide' }), revealFrac: 0, origin }).kind).toBe('route-bloom')
+  })
+  it.each([['left', 'inset(0 0 0 100%)'], ['right', 'inset(0 100% 0 0)'], ['up', 'inset(100% 0 0 0)'], ['down', 'inset(0 0 100% 0)'], ['forward', 'inset(0 0 0 100%)']])('maps wipe %s', (direction, clipPath) => {
+    expect(compile({ enter: 'directional-wipe', direction }).style).toEqual({ clipPath })
+  })
+  it.each([['calm', 12], ['medium', 16], ['accent', 20]])('maps cascade %s', (energy, offset) => expect(compile({ enter: 'photo-cascade', energy }).style.transform).toBe(`translate3d(0, ${offset}%, 0)`))
+  it.each([['calm', 'scale(0.96)'], ['medium', 'scale(0.94)'], ['accent', 'scale(0.92)']])('maps unfold %s', (energy, transform) => expect(compile({ enter: 'layer-unfold', energy }).style.transform).toBe(transform))
+  it.each([['route-end', '120px 80px'], ['image-focus', '50% 42%'], ['screen-center', '50% 50%']])('maps anchor %s', (anchor, transformOrigin) => expect(compile({ enter: 'layer-unfold', anchor }).style.transformOrigin).toBe(transformOrigin))
+  it.each([['calm', 10], ['medium', 14], ['accent', 18]])('maps chapter %s', (energy, distance) => expect(compile({ enter: 'chapter-slide', direction: 'left', energy }).style.transform).toBe(`translate3d(${distance}%, 0, 0)`))
+  it.each([['left', 'translate3d(18%, 0, 0)'], ['right', 'translate3d(-18%, 0, 0)'], ['up', 'translate3d(0, 18%, 0)'], ['down', 'translate3d(0, -18%, 0)'], ['forward', 'translate3d(18%, 0, 0)']])('maps chapter direction %s', (direction, transform) => expect(compile({ enter: 'chapter-slide', direction, energy: 'accent' }).style.transform).toBe(transform))
+})
