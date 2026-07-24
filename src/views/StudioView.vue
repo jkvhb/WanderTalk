@@ -58,7 +58,7 @@ function imageAutoFillAll() {
   studio.runImageAutoFillAll(settings.llmKey)
 }
 
-// Phase 4e：编排动效候选=有旁白且 ≥1 张图的节点
+// Phase 4e: candidates are content nodes with non-empty SSML-stripped narration, including text-only nodes.
 const choreoEligibleCount = computed(() => {
   if (!trip.plan) return 0
   return trip.plan.days.reduce(

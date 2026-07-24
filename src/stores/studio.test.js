@@ -210,9 +210,8 @@ describe('studio store', () => {
         })),
       )
     })
-
-    // 只给 Day1 前两个节点配图 → 候选=有旁白且 ≥1 张图的节点，恰好 2 个
-    // （雅安无预设文案，需手动补旁白才能成为候选）
+    // Candidates are content nodes with non-empty SSML-stripped narration, including text-only nodes.
+    // 雅安无预设文案，需手动补旁白才能成为候选。
     function setupTrip() {
       const trip = useTripStore()
       trip.loadPreset318()
@@ -223,8 +222,7 @@ describe('studio store', () => {
       trip.addImage(1, 5, 'img_c')
       return trip
     }
-
-    it('只处理"有旁白且有图"的节点，normalize 后的配置与 narrationHash 写入 waypoint', async () => {
+    it('processes non-empty SSML-stripped narration, including text-only nodes', async () => {
       const trip = setupTrip()
       const studio = useStudioStore()
       await studio.runChoreographyAll('sk')
@@ -271,6 +269,37 @@ describe('studio store', () => {
       ], { apiKey: 'sk' })
       expect(setChoreography).toHaveBeenCalledTimes(1)
       expect(trip.plan.days[0].waypoints[0].choreography.config.tempo).toBe('lively')
+    })
+
+    it('preserves normalized config from indexed result envelopes', async () => {
+      const trip = useTripStore()
+      trip.replacePlan({
+        days: [{
+          dayNumber: 1,
+          title: '测试',
+          waypoints: [{ name: '站点', lng: 99, lat: 29, narration: '两张图的旁白', images: ['img_a', 'img_b'] }],
+        }],
+      })
+      generateChoreographyConfigs.mockImplementation(async (nodes) => nodes.map((n) => ({
+        index: n.index,
+        config: {
+          tempo: 'calm',
+          transition: { enter: 'chapter-slide', anchor: 'screen-center', direction: 'left', energy: 'accent', layout: 'sequential-cards', exit: 'soft-dissolve' },
+          phases: [{ at: 0, focus: 0, accent: 'pulse' }, { at: 0.5, focus: 1, accent: 'none' }],
+          idle: { drift: 0.8, breathe: 0.2 },
+        },
+      })))
+      const studio = useStudioStore()
+
+      await studio.runChoreographyAll('sk')
+
+      const config = trip.plan.days[0].waypoints[0].choreography.config
+      expect(config.tempo).toBe('calm')
+      expect(config.transition).toEqual({
+        enter: 'chapter-slide', anchor: 'screen-center', direction: 'left', energy: 'accent', layout: 'sequential-cards', exit: 'soft-dissolve',
+      })
+      expect(config.phases).toEqual([{ at: 0, focus: 0, accent: 'pulse' }, { at: 0.5, focus: 1, accent: 'none' }])
+      expect(config.idle).toEqual({ drift: 0.8, breathe: 0.2 })
     })
 
     it('幂等：旁白未改的节点重跑全部跳过，不再调 LLM', async () => {
@@ -327,8 +356,7 @@ describe('studio store', () => {
       expect(studio.choreoJob.error).toMatch(/生成编排配置失败/)
       expect(studio.choreoJob.running).toBe(false)
     })
-
-    it('无候选节点（没图）时不调 LLM，任务直接完成', async () => {
+    it('does not call the LLM when no content node has eligible narration', async () => {
       const trip = useTripStore()
       trip.loadPreset318()
       const studio = useStudioStore()

@@ -174,7 +174,7 @@ export const useStudioStore = defineStore('studio', () => {
     }
   }
 
-  // 候选=有旁白且 ≥1 张图的节点（1 张也配：全屏微呼吸分支）；带当前旁白哈希供幂等比对
+  // Candidates are content nodes with non-empty SSML-stripped narration; text-only nodes are supported and narration hashes remain idempotent.
   function nodesForChoreography(plan) {
     const out = []
     for (const day of plan.days) {
@@ -218,7 +218,7 @@ export const useStudioStore = defineStore('studio', () => {
         const results = await generateChoreographyConfigs(payload, { apiKey })
         toProcess.forEach((n, k) => {
           const raw = results?.find((r) => r.index === k) ?? results?.[k]
-          const config = normalizeChoreography(raw, n.imageCount)
+          const config = normalizeChoreography(raw?.config ?? raw, n.imageCount)
           trip.setChoreography(n.dayNumber, n.index, { config, narrationHash: n.currentHash })
           choreoJob.value.done++
         })
