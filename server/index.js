@@ -1,6 +1,7 @@
 import { createApp } from './app.js'
 import { synthesizeToMp3 } from './synthesize.js'
-import { makePlanNarrationGenerator, callDeepSeek } from './narration.js'
+import { makePlanNarrationGenerator } from './narration.js'
+import { makeLlmCaller } from './llm.js'
 import { makeImageQueryGenerator, searchImages, fetchImageBytes } from './images.js'
 import { searchCommonsImages } from './commonsImages.js'
 import { makeChoreographyGenerator } from './choreography.js'
@@ -14,11 +15,12 @@ try {
 
 const PORT = process.env.PORT || 8787
 const PIXABAY_KEY = process.env.PIXABAY_KEY || ''
+const callLLM = makeLlmCaller({ moonshotApiKey: process.env.MOONSHOT_API_KEY || '' })
 
 const synthesize = (args) => synthesizeToMp3(args)
-const generateNarration = makePlanNarrationGenerator({ callLLM: callDeepSeek })
-const generateImageQueries = makeImageQueryGenerator({ callLLM: callDeepSeek })
-const generateChoreography = makeChoreographyGenerator({ callLLM: callDeepSeek })
+const generateNarration = makePlanNarrationGenerator({ callLLM })
+const generateImageQueries = makeImageQueryGenerator({ callLLM })
+const generateChoreography = makeChoreographyGenerator({ callLLM })
 const searchImagesWithKey = ({ q, lang }) => searchImages({ apiKey: PIXABAY_KEY, q, lang })
 
 createApp({

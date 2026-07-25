@@ -22,6 +22,19 @@ function plainNarration(text) {
   return (text || '').replace(/<[^>]+>/g, '').trim()
 }
 
+function llmRequest() {
+  return {
+    provider: settings.llmProvider,
+    apiKey: settings.llmProvider === 'deepseek' ? settings.llmKey : '',
+  }
+}
+
+function ensureLlmReady() {
+  if (!settings.needsDeepSeekKey) return true
+  uiError.value = '请先在「设置」填写 DeepSeek API Key'
+  return false
+}
+
 const narratedCount = computed(() => {
   if (!trip.plan) return 0
   return trip.plan.days.reduce((n, d) => n + d.waypoints.filter((w) => isContentNode(w) && w.narration).length, 0)
@@ -32,11 +45,12 @@ const blanksExist = computed(
 
 function aiAll() {
   uiError.value = ''
-  if (!settings.llmKey) {
-    uiError.value = '请先在「设置」填写 DeepSeek API Key'
-    return
-  }
-  studio.runAiDraftAll(settings.llmKey, { regenerateAll: !blanksExist.value })
+  if (!ensureLlmReady()) return
+  const llm = llmRequest()
+  studio.runAiDraftAll(llm.apiKey, {
+    provider: llm.provider,
+    regenerateAll: !blanksExist.value,
+  })
 }
 
 function synthAll() {
@@ -51,11 +65,9 @@ const blankImageCount = computed(() => {
 
 function imageAutoFillAll() {
   uiError.value = ''
-  if (!settings.llmKey) {
-    uiError.value = '请先在「设置」填写 DeepSeek API Key'
-    return
-  }
-  studio.runImageAutoFillAll(settings.llmKey)
+  if (!ensureLlmReady()) return
+  const llm = llmRequest()
+  studio.runImageAutoFillAll(llm.apiKey, { provider: llm.provider })
 }
 
 // Phase 4e: candidates are content nodes with non-empty SSML-stripped narration, including text-only nodes.
@@ -69,11 +81,9 @@ const choreoEligibleCount = computed(() => {
 
 function choreographyAll() {
   uiError.value = ''
-  if (!settings.llmKey) {
-    uiError.value = '请先在「设置」填写 DeepSeek API Key'
-    return
-  }
-  studio.runChoreographyAll(settings.llmKey, { force: true })
+  if (!ensureLlmReady()) return
+  const llm = llmRequest()
+  studio.runChoreographyAll(llm.apiKey, { provider: llm.provider, force: true })
 }
 
 const showPlayer = ref(false)

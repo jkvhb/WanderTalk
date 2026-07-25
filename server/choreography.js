@@ -28,11 +28,12 @@ function buildChoreographyMessages(nodes) {
   ]
 }
 
-// callLLM({apiKey,model,messages,json}) -> string，同 narration.js 的 callDeepSeek 签名。
+// callLLM({provider,apiKey,model,messages,json}) -> string，统一供应商调用签名。
 // 返回原始 results 数组——数值清洗/越界处理交给前端 normalizeChoreography（客户端兜底更可靠）。
 export function makeChoreographyGenerator({ callLLM }) {
-  return async function generateChoreography({ apiKey, nodes, model }) {
+  return async function generateChoreography({ provider, apiKey, nodes, model }) {
     const content = await callLLM({
+      provider,
       apiKey,
       model,
       messages: buildChoreographyMessages(nodes),

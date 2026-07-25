@@ -1,10 +1,10 @@
 // Phase 4d：AI 自动配图——前端 API 薄封装，对齐 useNarration.js 的写法。
 
-export async function generateImageQueries(nodes, { apiKey, model } = {}) {
+export async function generateImageQueries(nodes, { provider = 'kimi', apiKey = '', model } = {}) {
   const res = await fetch('/api/imageQuery', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ apiKey, model, nodes }),
+    body: JSON.stringify({ provider, apiKey, model, nodes }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.error || `生成检索词失败（${res.status}）`)

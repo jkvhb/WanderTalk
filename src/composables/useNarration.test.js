@@ -11,8 +11,15 @@ describe('generateNarrationDraft', () => {
         }),
     )
     vi.stubGlobal('fetch', fetchMock)
-    const out = await generateNarrationDraft([{ nodeName: '康定', dayNumber: 1 }], { apiKey: 'sk' })
+    const out = await generateNarrationDraft(
+      [{ nodeName: '康定', dayNumber: 1 }],
+      { provider: 'deepseek', apiKey: 'sk' },
+    )
     expect(out[0].narration).toBe('稿')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      provider: 'deepseek',
+      apiKey: 'sk',
+    })
   })
   it('失败抛出可读错误', async () => {
     vi.stubGlobal(

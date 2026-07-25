@@ -1,8 +1,8 @@
 import express from 'express'
 import { validateTtsBody } from './ttsParams.js'
 
-// 依赖注入：synthesize({text,voice,rate})→Buffer(mp3)；generateNarration({apiKey,items,model})→[{nodeName,dayNumber,narration}]
-// generateImageQueries({apiKey,nodes,model})→[{index,queries,keywords}]；searchImages({apiKey,q,lang})→[{id,tags,webformatURL,largeImageURL,pageURL}]
+// 依赖注入：synthesize({text,voice,rate})→Buffer(mp3)；generateNarration({provider,apiKey,items,model})→[{nodeName,dayNumber,narration}]
+// generateImageQueries({provider,apiKey,nodes,model})→[{index,queries,keywords}]；searchImages({apiKey,q,lang})→[{id,tags,webformatURL,largeImageURL,pageURL}]
 // fetchImageBytes(url)→{contentType,buffer}；generateChoreography({apiKey,nodes,model})→[{index,tempo,phases,idle}]
 export function createApp({
   synthesize,
@@ -30,9 +30,9 @@ export function createApp({
 
   app.post('/api/narration', async (req, res) => {
     try {
-      const { apiKey, items, model } = req.body || {}
-      if (!apiKey) {
-        const err = new Error('缺少 LLM API Key，请在「设置」中填写')
+      const { apiKey = '', provider = 'kimi', items, model } = req.body || {}
+      if (provider === 'deepseek' && !apiKey) {
+        const err = new Error('请先在「设置」填写 DeepSeek API Key')
         err.status = 400
         throw err
       }
@@ -41,7 +41,7 @@ export function createApp({
         err.status = 400
         throw err
       }
-      const results = await generateNarration({ apiKey, items, model })
+      const results = await generateNarration({ provider, apiKey, items, model })
       res.json({ results })
     } catch (e) {
       res.status(e.status || 500).json({ error: e.message })
@@ -50,9 +50,9 @@ export function createApp({
 
   app.post('/api/imageQuery', async (req, res) => {
     try {
-      const { apiKey, nodes, model } = req.body || {}
-      if (!apiKey) {
-        const err = new Error('缺少 LLM API Key，请在「设置」中填写')
+      const { apiKey = '', provider = 'kimi', nodes, model } = req.body || {}
+      if (provider === 'deepseek' && !apiKey) {
+        const err = new Error('请先在「设置」填写 DeepSeek API Key')
         err.status = 400
         throw err
       }
@@ -61,7 +61,7 @@ export function createApp({
         err.status = 400
         throw err
       }
-      const results = await generateImageQueries({ apiKey, nodes, model })
+      const results = await generateImageQueries({ provider, apiKey, nodes, model })
       res.json({ results })
     } catch (e) {
       res.status(e.status || 500).json({ error: e.message })
@@ -70,9 +70,9 @@ export function createApp({
 
   app.post('/api/choreography', async (req, res) => {
     try {
-      const { apiKey, nodes, model } = req.body || {}
-      if (!apiKey) {
-        const err = new Error('缺少 LLM API Key，请在「设置」中填写')
+      const { apiKey = '', provider = 'kimi', nodes, model } = req.body || {}
+      if (provider === 'deepseek' && !apiKey) {
+        const err = new Error('请先在「设置」填写 DeepSeek API Key')
         err.status = 400
         throw err
       }
@@ -81,7 +81,7 @@ export function createApp({
         err.status = 400
         throw err
       }
-      const results = await generateChoreography({ apiKey, nodes, model })
+      const results = await generateChoreography({ provider, apiKey, nodes, model })
       res.json({ results })
     } catch (e) {
       res.status(e.status || 500).json({ error: e.message })
