@@ -143,6 +143,14 @@ describe('sampleAt · 契约 v2', () => {
     expect(second).toMatchObject({ kind: 'point', sceneId: 'stop-1', lng: 1, lat: 0, zoom: 10.2 })
   })
 
+  it('dwell 小车停在当前节点而不是从地图上消失', () => {
+    const atA = sampleAt(tl, 4)
+    expect(atA.car).toMatchObject({ lng: 0, lat: 0, frac: 1 })
+    const atB = sampleAt(tl, dwellBStart + 1)
+    expect(atB.car).toMatchObject({ lng: 1, lat: 0, frac: 1 })
+    expect(atB.car.headingDeg).toBeCloseTo(90, 1)
+  })
+
   it('语音窗口后移：揭幕期间不播，盖住后开播、offset 扣除 wipe', () => {
     expect(sampleAt(tl, 3.3).audio.playing).toBe(false)
     expect(sampleAt(tl, 4).audio).toEqual({ stopIndex: 0, playing: true, offset: 0.5 }) // audioStart=3.5

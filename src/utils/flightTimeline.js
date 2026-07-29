@@ -54,9 +54,11 @@ export function buildFlightTimeline(stops, opts = {}) {
   push('intro', o.introDuration, -1)
   stops.forEach((s, i) => {
     let legBounds = null
+    let arrivalHeadingDeg = 90
     if (s.routeToHere && s.routeToHere.length >= 2) {
       const cum = cumulativeLengths(s.routeToHere)
       const meters = cum[cum.length - 1]
+      arrivalHeadingDeg = bearingAt(s.routeToHere, 1, 500, cum)
       const prev = stops[i - 1]?.node
       // 段包围盒 = 路线 ∪ 两端节点（POI 可能离路几十米，纳入保证可见）
       legBounds = boundsOfPath(s.routeToHere, [
@@ -68,6 +70,7 @@ export function buildFlightTimeline(stops, opts = {}) {
     // dwell = 镜头居中/信息进入 + 语音 + 停顿 + 信息退出；地图全程可见。
     push('dwell', o.showcaseEnterDuration + (s.audioDuration || 0) + o.dwellPadding + o.showcaseExitDuration, i, {
       audioDuration: s.audioDuration || 0,
+      arrivalHeadingDeg,
     })
   })
   push('outro', o.outroDuration, -1)
@@ -184,7 +187,7 @@ export function sampleAt(timeline, t) {
       bearing: 0,
       easeMs: o.showcaseCameraEaseMs,
     },
-    car: null,
+    car: { lng: node.lng, lat: node.lat, headingDeg: scene.arrivalHeadingDeg, frac: 1 },
     progress: { legIndex: i, frac: 1 },
     showcase: { stopIndex: i, imageIndex, enterFrac, narrationFrac, exitFrac },
     activeStopIndex: i,

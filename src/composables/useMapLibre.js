@@ -113,6 +113,9 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
         if (lastBoundsCam) {
           lastBoundsSceneId = null
           applyCamera(lastBoundsCam, { animate: false })
+        } else if (lastPointCam) {
+          lastPointSceneId = null
+          applyCamera(lastPointCam, { animate: false })
         }
       }
     })
@@ -129,6 +132,8 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
 
   let lastBoundsSceneId = null
   let lastBoundsCam = null
+  let lastPointSceneId = null
+  let lastPointCam = null
   function applyCamera(cam, { animate = true } = {}) {
     if (!map) return
     if (cam?.kind === 'bounds') {
@@ -156,26 +161,38 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
       const easeMs = cam.easeMs ?? 0
       const transition = cameraTransitionFor(target, {
         animate,
-        hasPrevious: !!lastBoundsCam,
+        hasPrevious: !!(lastBoundsCam || lastPointCam),
         duration: easeMs,
       })
       map[transition.method](transition.options)
       lastBoundsSceneId = cam.sceneId ?? null
       lastBoundsCam = cam
+      lastPointSceneId = null
+      lastPointCam = null
       return
     }
-    // 兼容旧点相机 {lng,lat,zoom,pitch,bearing,padding:{leftFrac}}
+    if (!cam || !Number.isFinite(cam.lng) || !Number.isFinite(cam.lat)) return
+    if (cam.sceneId != null && cam.sceneId === lastPointSceneId) return
+    const hasPrevious = !!(lastBoundsCam || lastPointCam)
     lastBoundsSceneId = null
     lastBoundsCam = null
     const w = container.clientWidth || 0
     const left = Math.round((cam.padding?.leftFrac ?? 0) * w)
-    map.jumpTo({
+    const target = {
       center: [cam.lng, cam.lat],
-      zoom: cam.zoom,
-      pitch: cam.pitch ?? 60,
+      zoom: capCameraZoom(cam.zoom, { max: cam.maxZoom ?? 10.2 }),
+      pitch: cam.pitch ?? 25,
       bearing: cam.bearing ?? 0,
       padding: { top: 0, bottom: 0, left, right: 0 },
-    })
+    }
+    // 节点居中用 easeTo 直接插值到固定缩放；不用 flyTo 的弧线缩放，避免镜头穿入地形。
+    if (animate && hasPrevious && (cam.easeMs ?? 0) > 0) {
+      map.easeTo({ ...target, duration: cam.easeMs, essential: true })
+    } else {
+      map.jumpTo(target)
+    }
+    lastPointSceneId = cam.sceneId ?? null
+    lastPointCam = cam
   }
   function setCamera(cam) {
     if (!map) {

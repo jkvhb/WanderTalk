@@ -138,7 +138,8 @@ export const useFlightStore = defineStore('flight', () => {
         const s = sample.value
         console.warn(
           `[FlightPerf] 长帧 ${Math.round(ts - prev)}ms @ t=${t.value.toFixed(1)}s(${Math.floor(t.value / 60)}:${String(Math.floor(t.value % 60)).padStart(2, '0')}) ` +
-            `phase=${s?.phase} stop=${s?.activeStopIndex} reveal=${s?.showcase?.revealFrac?.toFixed(2) ?? '-'} narr=${s?.showcase?.narrationFrac?.toFixed(2) ?? '-'}`,
+            `phase=${s?.phase} stop=${s?.activeStopIndex} enter=${s?.showcase?.enterFrac?.toFixed(2) ?? '-'} ` +
+            `narr=${s?.showcase?.narrationFrac?.toFixed(2) ?? '-'} exit=${s?.showcase?.exitFrac?.toFixed(2) ?? '-'}`,
         )
       }
       tick((ts - prev) / 1000)

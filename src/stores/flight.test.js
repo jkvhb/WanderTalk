@@ -145,7 +145,7 @@ describe('flight store 播放', () => {
     expect(flight.t).toBe(frozen)
   })
 
-  it('透传 setCar/setProgress：fly 有车、dwell 车为 null 且进度走满', () => {
+  it('透传 setCar/setProgress：fly 有车、dwell 小车停在节点且进度走满', () => {
     const flight = useFlightStore()
     const adapter = {
       setCamera: vi.fn(), playAudio: vi.fn(), stopAudio: vi.fn(),
@@ -159,7 +159,7 @@ describe('flight store 播放', () => {
     )
     expect(adapter.setProgress).toHaveBeenLastCalledWith(expect.objectContaining({ legIndex: 1 }))
     flight.seek(4) // dwell A
-    expect(adapter.setCar).toHaveBeenLastCalledWith(null)
+    expect(adapter.setCar).toHaveBeenLastCalledWith({ lng: 0, lat: 0, headingDeg: 90, frac: 1 })
     expect(adapter.setProgress).toHaveBeenLastCalledWith({ legIndex: 0, frac: 1 })
   })
 

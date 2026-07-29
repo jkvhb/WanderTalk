@@ -123,6 +123,35 @@ function preferredPresets(storyMode, imageCount) {
   return ['right-rail', 'left-rail', 'bottom-filmstrip', 'top-filmstrip']
 }
 
+function fittedSlots(presetId, count) {
+  const limited = Math.max(0, Math.min(4, count))
+  if (presetId === 'feature-rail') return PRESETS[presetId].slots.slice(0, 1).map((slot) => ({ ...slot }))
+  if (presetId === 'right-rail' || presetId === 'left-rail') {
+    const xPct = presetId === 'right-rail' ? 74 : 4
+    const heightPct = limited >= 4 ? 20 : limited === 3 ? 24 : 28
+    const gapPct = limited >= 4 ? 4 : limited === 3 ? 9 : 8
+    const total = limited * heightPct + Math.max(0, limited - 1) * gapPct
+    const start = (100 - total) / 2
+    return Array.from({ length: limited }, (_, index) => ({
+      xPct,
+      yPct: start + index * (heightPct + gapPct),
+      widthPct: 22,
+      heightPct,
+    }))
+  }
+  const widthPct = limited >= 4 ? 20 : limited === 3 ? 25 : 32
+  const gapPct = limited >= 4 ? 3 : 4
+  const total = limited * widthPct + Math.max(0, limited - 1) * gapPct
+  const start = (100 - total) / 2
+  const yPct = presetId === 'top-filmstrip' ? 4 : 73
+  return Array.from({ length: limited }, (_, index) => ({
+    xPct: start + index * (widthPct + gapPct),
+    yPct,
+    widthPct,
+    heightPct: 23,
+  }))
+}
+
 function mapOnly(story) {
   return {
     presetId: 'map-only',
@@ -146,7 +175,7 @@ export function resolveMapShowcaseLayout(input = {}) {
   const recent = Array.isArray(input.recentPresetIds) ? input.recentPresetIds : []
   const counts = input.dayPresetCounts || {}
   const candidates = preferredPresets(story.storyMode, imageCount)
-    .filter((presetId) => imageCount <= PRESETS[presetId].slots.length || presetId !== 'feature-rail')
+    .filter((presetId) => presetId !== 'feature-rail' || imageCount <= 2)
     .map((presetId, preferenceIndex) => ({ presetId, preferenceIndex, preset: PRESETS[presetId] }))
     .filter(({ preset }) => {
       const panel = rectInPixels(preset.panel, viewport)
@@ -167,13 +196,15 @@ export function resolveMapShowcaseLayout(input = {}) {
 
   if (!candidates.length) return mapOnly(story)
   const { presetId, preset } = candidates[0]
+  const slots = fittedSlots(presetId, imageCount)
+  const orderLimit = presetId === 'feature-rail' ? Math.min(2, imageCount) : slots.length
   const imageOrder = (Array.isArray(story.imageOrder) ? story.imageOrder : [])
     .filter((index) => Number.isInteger(index) && index >= 0 && index < imageCount)
-    .slice(0, preset.slots.length)
+    .slice(0, orderLimit)
   return {
     presetId,
     panel: { ...preset.panel },
-    slots: preset.slots.slice(0, imageOrder.length).map((slot) => ({ ...slot })),
+    slots: slots.slice(0, imageOrder.length),
     identity: { ...preset.identity },
     mapTarget: { ...preset.mapTarget },
     imageOrder,

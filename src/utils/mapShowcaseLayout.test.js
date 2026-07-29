@@ -67,4 +67,34 @@ describe('resolveMapShowcaseLayout', () => {
     }
     expect(resolveMapShowcaseLayout(input)).toEqual(resolveMapShowcaseLayout(input))
   })
+
+  it('左右素材轨可以按顺序展示四张图片', () => {
+    const result = resolveMapShowcaseLayout({
+      ...base,
+      routePoints: [{ x: 350, y: 300 }, { x: 500, y: 300 }, { x: 650, y: 280 }],
+      story: { storyMode: 'sequential', imageOrder: [0, 1, 2, 3], beats: [] },
+      imageCount: 4,
+    })
+
+    expect(['right-rail', 'left-rail']).toContain(result.presetId)
+    expect(result.slots).toHaveLength(4)
+    expect(result.imageOrder).toEqual([0, 1, 2, 3])
+  })
+
+  it('单一重点的两张图共用一个特写位置并可按旁白替换', () => {
+    const result = resolveMapShowcaseLayout({
+      ...base,
+      routePoints: [{ x: 250, y: 300 }, { x: 500, y: 300 }, { x: 620, y: 280 }],
+      story: {
+        storyMode: 'hero',
+        imageOrder: [1, 0],
+        beats: [{ at: 0, focus: 1 }, { at: 0.6, focus: 0 }],
+      },
+      imageCount: 2,
+    })
+
+    expect(result.presetId).toBe('feature-rail')
+    expect(result.slots).toHaveLength(1)
+    expect(result.imageOrder).toEqual([1, 0])
+  })
 })
