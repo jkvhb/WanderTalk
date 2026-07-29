@@ -294,7 +294,7 @@ return {
 Defaults:
 
 ```js
-showcaseEnterDuration: 0.7,
+showcaseEnterDuration: 2.8,
 showcaseExitDuration: 0.5,
 showcaseZoom: 10.2,
 showcaseCameraEaseMs: 2800,
