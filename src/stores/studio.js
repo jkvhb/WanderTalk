@@ -7,9 +7,9 @@ import { generateImageQueries, searchPixabayImages, searchCommonsImages, fetchPi
 import { generateChoreographyConfigs } from '../composables/useChoreography'
 import { pickImages } from '../utils/imageMatch'
 import { downscaleImage, newImageId } from '../utils/image'
-import { putImage } from '../utils/db'
+import { getImage, putImage } from '../utils/db'
 import { hashKey } from '../utils/hash'
-import { normalizeChoreography } from '../utils/choreography'
+import { normalizeShowcaseStory } from '../utils/showcaseStory'
 import { isContentNode } from '../utils/contentNode'
 
 // 任务进度状态挂在 store（而非组件），切换视图时任务不中断、进度可续显。
@@ -162,7 +162,15 @@ export const useStudioStore = defineStore('studio', () => {
               mime,
               w,
               h,
-              source: { provider: hit.provider || 'pixabay', id: hit.id, pageURL: hit.pageURL, attribution: hit.attribution || null },
+              source: {
+                provider: hit.provider || 'pixabay',
+                id: hit.id,
+                pageURL: hit.pageURL,
+                attribution: hit.attribution || null,
+                title: hit.title || '',
+                tags: hit.tags || '',
+                description: hit.description || '',
+              },
             })
             trip.addImage(node.dayNumber, node.index, id)
           }
@@ -185,12 +193,14 @@ export const useStudioStore = defineStore('studio', () => {
         if (!isContentNode(w)) return
         const plain = stripSsml(w.narration)
         if (!plain) return
+        const imageIds = Array.isArray(w.images) ? [...w.images] : []
         out.push({
           dayNumber: day.dayNumber,
           index: i,
           plain,
-          imageCount: w.images?.length ?? 0,
-          currentHash: hashKey(plain),
+          imageCount: imageIds.length,
+          imageIds,
+          currentHash: hashKey(`${plain}\n${imageIds.join('|')}`),
           storedHash: w.choreography?.narrationHash || '',
         })
       })
@@ -213,18 +223,29 @@ export const useStudioStore = defineStore('studio', () => {
     }
     try {
       if (toProcess.length) {
-        const payload = toProcess.map((n, k) => ({
+        const payload = await Promise.all(toProcess.map(async (n, k) => ({
           index: k,
           narration: n.plain.slice(0, CHOREO_NARRATION_MAX),
           imageCount: n.imageCount,
-        }))
+          images: await Promise.all(n.imageIds.map(async (id, index) => {
+            const entry = await getImage(id)
+            const source = entry?.source || {}
+            return {
+              index,
+              title: source.title || '',
+              tags: source.tags || '',
+              description: source.description || '',
+              provider: source.provider || '',
+            }
+          })),
+        })))
         const results = await generateChoreographyConfigs(payload, {
           apiKey,
           ...(provider ? { provider } : {}),
         })
         toProcess.forEach((n, k) => {
           const raw = results?.find((r) => r.index === k) ?? results?.[k]
-          const config = normalizeChoreography(raw?.config ?? raw, n.imageCount)
+          const config = normalizeShowcaseStory(raw?.config ?? raw, n.imageCount)
           trip.setChoreography(n.dayNumber, n.index, { config, narrationHash: n.currentHash })
           choreoJob.value.done++
         })

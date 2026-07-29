@@ -204,9 +204,11 @@ describe('studio store', () => {
       generateChoreographyConfigs.mockImplementation(async (nodes) =>
         nodes.map((n) => ({
           index: n.index,
-          tempo: 'lively',
-          phases: [{ at: 0, focus: 0, accent: 'none' }],
-          idle: { drift: 0.5, breathe: 0.5 },
+          schemaVersion: 2,
+          storyMode: n.imageCount <= 1 ? 'hero' : 'sequential',
+          imageOrder: Array.from({ length: n.imageCount }, (_, i) => i),
+          beats: n.imageCount ? [{ at: 0, focus: 0 }] : [],
+          emphasis: 'name',
         })),
       )
     })
@@ -232,8 +234,9 @@ describe('studio store', () => {
       expect(studio.choreoJob.done).toBe(17)
       expect(studio.choreoJob.skipped).toBe(0)
       const wp0 = trip.plan.days[0].waypoints[0]
-      expect(wp0.choreography.config.tempo).toBe('lively')
-      expect(wp0.choreography.config.phases[0].at).toBe(0)
+      expect(wp0.choreography.config.schemaVersion).toBe(2)
+      expect(wp0.choreography.config.storyMode).toBe('sequential')
+      expect(wp0.choreography.config.beats[0].at).toBe(0)
       expect(wp0.choreography.narrationHash).toBeTruthy()
     })
 
@@ -248,6 +251,10 @@ describe('studio store', () => {
       expect(n0.narration).toContain('你好成都')
       expect(n0.narration.length).toBeLessThanOrEqual(300)
       expect(n0.imageCount).toBe(2)
+      expect(n0.images).toEqual([
+        { index: 0, title: '', tags: '', description: '', provider: '' },
+        { index: 1, title: '', tags: '', description: '', provider: '' },
+      ])
     })
 
     it('无图但有旁白的内容节点也会编排，并以 imageCount: 0 持久化配置', async () => {
@@ -265,10 +272,12 @@ describe('studio store', () => {
       await studio.runChoreographyAll('sk')
 
       expect(generateChoreographyConfigs).toHaveBeenCalledWith([
-        { index: 0, narration: '这里只有旁白，没有图片。', imageCount: 0 },
+        { index: 0, narration: '这里只有旁白，没有图片。', imageCount: 0, images: [] },
       ], { apiKey: 'sk' })
       expect(setChoreography).toHaveBeenCalledTimes(1)
-      expect(trip.plan.days[0].waypoints[0].choreography.config.tempo).toBe('lively')
+      expect(trip.plan.days[0].waypoints[0].choreography.config).toMatchObject({
+        schemaVersion: 2, storyMode: 'hero', imageOrder: [], beats: [],
+      })
     })
 
     it('preserves normalized config from indexed result envelopes', async () => {
@@ -283,10 +292,11 @@ describe('studio store', () => {
       generateChoreographyConfigs.mockImplementation(async (nodes) => nodes.map((n) => ({
         index: n.index,
         config: {
-          tempo: 'calm',
-          transition: { enter: 'chapter-slide', anchor: 'screen-center', direction: 'left', energy: 'accent', layout: 'sequential-cards', exit: 'soft-dissolve' },
-          phases: [{ at: 0, focus: 0, accent: 'pulse' }, { at: 0.5, focus: 1, accent: 'none' }],
-          idle: { drift: 0.8, breathe: 0.2 },
+          schemaVersion: 2,
+          storyMode: 'parallel',
+          imageOrder: [1, 0],
+          beats: [{ at: 0, focus: 1 }, { at: 0.5, focus: 0 }],
+          emphasis: 'scenery',
         },
       })))
       const studio = useStudioStore()
@@ -294,12 +304,13 @@ describe('studio store', () => {
       await studio.runChoreographyAll('sk')
 
       const config = trip.plan.days[0].waypoints[0].choreography.config
-      expect(config.tempo).toBe('calm')
-      expect(config.transition).toEqual({
-        enter: 'chapter-slide', anchor: 'screen-center', direction: 'left', energy: 'accent', layout: 'sequential-cards', exit: 'soft-dissolve',
+      expect(config).toEqual({
+        schemaVersion: 2,
+        storyMode: 'parallel',
+        imageOrder: [1, 0],
+        beats: [{ at: 0, focus: 1 }, { at: 0.5, focus: 0 }],
+        emphasis: 'scenery',
       })
-      expect(config.phases).toEqual([{ at: 0, focus: 0, accent: 'pulse' }, { at: 0.5, focus: 1, accent: 'none' }])
-      expect(config.idle).toEqual({ drift: 0.8, breathe: 0.2 })
     })
 
     it('幂等：旁白未改的节点重跑全部跳过，不再调 LLM', async () => {
@@ -325,7 +336,14 @@ describe('studio store', () => {
       trip.setNarration(1, 0, '完全不同的新旁白文本')
       generateChoreographyConfigs.mockClear()
       generateChoreographyConfigs.mockImplementation(async (nodes) =>
-        nodes.map((n) => ({ index: n.index, tempo: 'calm', phases: [{ at: 0, focus: 0 }], idle: {} })),
+        nodes.map((n) => ({
+          index: n.index,
+          schemaVersion: 2,
+          storyMode: 'hero',
+          imageOrder: n.imageCount ? [0] : [],
+          beats: n.imageCount ? [{ at: 0, focus: 0 }] : [],
+          emphasis: 'name',
+        })),
       )
       await studio.runChoreographyAll('sk')
       expect(generateChoreographyConfigs).toHaveBeenCalledTimes(1)
@@ -333,7 +351,7 @@ describe('studio store', () => {
       expect(studio.choreoJob.done).toBe(1)
       expect(studio.choreoJob.skipped).toBe(16)
       const wp0 = trip.plan.days[0].waypoints[0]
-      expect(wp0.choreography.config.tempo).toBe('calm')
+      expect(wp0.choreography.config.storyMode).toBe('hero')
       expect(wp0.choreography.narrationHash).not.toBe(oldHash)
     })
 
@@ -344,8 +362,9 @@ describe('studio store', () => {
       await studio.runChoreographyAll('sk')
       expect(studio.choreoJob.done).toBe(17)
       const wp0 = trip.plan.days[0].waypoints[0]
-      expect(wp0.choreography.config.tempo).toBe('medium') // defaultChoreography
-      expect(wp0.choreography.config.phases.length).toBeGreaterThan(0)
+      expect(wp0.choreography.config.schemaVersion).toBe(2)
+      expect(wp0.choreography.config.storyMode).toBe('sequential')
+      expect(wp0.choreography.config.beats.length).toBeGreaterThan(0)
     })
 
     it('生成报错时进入 error 状态，不抛出', async () => {
