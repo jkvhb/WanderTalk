@@ -170,7 +170,10 @@ export function sampleAt(timeline, t) {
   const exitStart = scene.end - exitDuration
   const exitFrac = exitDuration > 0 ? clamp01((tc - exitStart) / exitDuration) : 1
   const audioStart = scene.start + enterDuration
-  const playing = scene.audioDuration > 0 && tc >= audioStart && tc < audioStart + scene.audioDuration
+  // 不在“记录时长”到点时立刻掐断播放器：Blob 解码/启动有少量延迟，
+  // 允许它利用既有 dwellPadding 自然播完，退出动画开始时再收尾。
+  const playing = scene.audioDuration > 0 && tc >= audioStart && tc < exitStart
+  const audioOffset = Math.min(scene.audioDuration, Math.max(0, tc - audioStart))
   const imgCount = node.images?.length ?? 0
   const narrationFrac =
     scene.audioDuration > 0 ? clamp01((tc - audioStart) / scene.audioDuration) : 0
@@ -191,7 +194,7 @@ export function sampleAt(timeline, t) {
     progress: { legIndex: i, frac: 1 },
     showcase: { stopIndex: i, imageIndex, enterFrac, narrationFrac, exitFrac },
     activeStopIndex: i,
-    audio: playing ? { stopIndex: i, playing: true, offset: tc - audioStart } : { ...NO_AUDIO },
+    audio: playing ? { stopIndex: i, playing: true, offset: audioOffset } : { ...NO_AUDIO },
     altitude: node.altitude ?? null,
     overlay: null,
   }

@@ -29,7 +29,7 @@ const PRESETS = {
   },
   'top-filmstrip': {
     panel: { xPct: 0, yPct: 0, widthPct: 100, heightPct: 32 },
-    identity: { xPct: 4, yPct: 88, align: 'left' },
+    identity: { xPct: 4, yPct: 88, align: 'left', anchorY: 'bottom' },
     mapTarget: { xPct: 50, yPct: 58 },
     slots: [
       { xPct: 5, yPct: 4, widthPct: 20, heightPct: 23 },

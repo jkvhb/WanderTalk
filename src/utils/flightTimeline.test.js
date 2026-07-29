@@ -151,10 +151,12 @@ describe('sampleAt · 契约 v2', () => {
     expect(atB.car.headingDeg).toBeCloseTo(90, 1)
   })
 
-  it('语音窗口后移：揭幕期间不播，盖住后开播、offset 扣除 wipe', () => {
+  it('语音窗口后移，并允许利用讲解后的停顿自然播完尾句', () => {
     expect(sampleAt(tl, 3.3).audio.playing).toBe(false)
     expect(sampleAt(tl, 4).audio).toEqual({ stopIndex: 0, playing: true, offset: 0.5 }) // audioStart=3.5
-    expect(sampleAt(tl, 5.6).audio.playing).toBe(false) // 窗口 3.5~5.5
+    expect(sampleAt(tl, 5.6).audio).toEqual({ stopIndex: 0, playing: true, offset: 2 })
+    expect(sampleAt(tl, 6.49).audio.playing).toBe(true)
+    expect(sampleAt(tl, 6.5).audio.playing).toBe(false) // 退出动画开始时才强制收尾
   })
 
   it('dwell 进度=该段走满；图片索引随进度切换', () => {

@@ -90,7 +90,12 @@ describe('flight store 播放', () => {
 
   function setup() {
     const flight = useFlightStore()
-    const adapter = { setCamera: vi.fn(), playAudio: vi.fn(), stopAudio: vi.fn() }
+    const adapter = {
+      setCamera: vi.fn(),
+      playAudio: vi.fn(),
+      stopAudio: vi.fn(),
+      setPlaybackRate: vi.fn(),
+    }
     const blob0 = new Blob(['0'])
     const blob1 = new Blob(['1'])
     flight.attach(adapter)
@@ -128,8 +133,9 @@ describe('flight store 播放', () => {
   })
 
   it('setSpeed 影响推进步长', () => {
-    const { flight } = setup()
+    const { flight, adapter } = setup()
     flight.setSpeed(2)
+    expect(adapter.setPlaybackRate).toHaveBeenCalledWith(2)
     flight.play()
     flight.tick(1) // 实际推进 2 秒
     expect(flight.t).toBeCloseTo(2, 6)

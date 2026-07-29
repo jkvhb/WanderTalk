@@ -20,6 +20,18 @@ describe('resolveMapShowcaseLayout', () => {
     expect(['top-filmstrip', 'bottom-filmstrip']).toContain(result.presetId)
   })
 
+  it('上侧素材轨的信息卡以底边定位，避免向下伸出播放区', () => {
+    const result = resolveMapShowcaseLayout({
+      ...base,
+      routePoints: [{ x: 0, y: 540 }, { x: 1000, y: 540 }],
+      story: { storyMode: 'parallel', imageOrder: [0, 1, 2], beats: [] },
+      imageCount: 3,
+    })
+
+    expect(result.presetId).toBe('top-filmstrip')
+    expect(result.identity).toMatchObject({ anchorY: 'bottom' })
+  })
+
   it('路线占据底部时不选底部胶片带', () => {
     const result = resolveMapShowcaseLayout({
       ...base,

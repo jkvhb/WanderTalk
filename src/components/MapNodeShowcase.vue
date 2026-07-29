@@ -25,12 +25,17 @@ const panelStyle = computed(() => {
     height: `${panel.heightPct}%`,
   }
 })
-const identityStyle = computed(() => ({
-  left: `${props.layout.identity?.xPct ?? 4}%`,
-  top: `${props.layout.identity?.yPct ?? 6}%`,
-  textAlign: props.layout.identity?.align || 'left',
-  transform: props.layout.identity?.align === 'right' ? 'translateX(-100%)' : undefined,
-}))
+const identityStyle = computed(() => {
+  const transforms = []
+  if (props.layout.identity?.align === 'right') transforms.push('translateX(-100%)')
+  if (props.layout.identity?.anchorY === 'bottom') transforms.push('translateY(-100%)')
+  return {
+    left: `${props.layout.identity?.xPct ?? 4}%`,
+    top: `${props.layout.identity?.yPct ?? 6}%`,
+    textAlign: props.layout.identity?.align || 'left',
+    transform: transforms.join(' ') || undefined,
+  }
+})
 const focusedImage = computed(() => {
   let focus = props.layout.imageOrder?.[0] ?? -1
   for (const beat of props.layout.beats || []) {
@@ -79,11 +84,16 @@ function slotStyle(slot, imageIndex) {
     :class="[`preset-${layout.presetId}`, { 'reduce-motion': reducedMotion }]"
     :style="{ opacity: sceneOpacity }"
   >
-    <div v-if="panelStyle" class="material-panel absolute" :style="panelStyle"></div>
+    <div
+      v-if="panelStyle"
+      :key="`panel-${layout.presetId}-${stopIndex}`"
+      class="material-panel absolute"
+      :style="panelStyle"
+    ></div>
 
     <div
       v-for="(slot, slotIndex) in layout.slots"
-      :key="`${stopIndex}-${slotIndex}`"
+      :key="`${stopIndex}-${layout.presetId}-${slotIndex}`"
       class="showcase-photo absolute"
       :class="{ 'is-focus': slotImageIndex(slotIndex) === focusedImage }"
       :style="slotStyle(slot, slotImageIndex(slotIndex))"
@@ -97,7 +107,12 @@ function slotStyle(slot, imageIndex) {
       />
     </div>
 
-    <section v-if="node" class="node-identity absolute" :style="identityStyle">
+    <section
+      v-if="node"
+      :key="`identity-${layout.presetId}-${stopIndex}`"
+      class="node-identity absolute"
+      :style="identityStyle"
+    >
       <div class="route-seq">G318 · STOP {{ String(stopIndex + 1).padStart(2, '0') }} / {{ stopCount }}</div>
       <h2>{{ node.name }}</h2>
       <div v-if="node.altitude != null" class="altitude-datum">
@@ -120,6 +135,7 @@ function slotStyle(slot, imageIndex) {
   background: linear-gradient(90deg, rgba(247, 248, 243, .58), rgba(247, 248, 243, .9));
   backdrop-filter: blur(5px) saturate(.82);
   box-shadow: 0 0 42px rgba(238, 240, 232, .2);
+  animation: materialEnter 1100ms cubic-bezier(.22, 1, .36, 1) both;
 }
 .preset-left-rail .material-panel {
   background: linear-gradient(90deg, rgba(247, 248, 243, .9), rgba(247, 248, 243, .58));
@@ -149,7 +165,11 @@ function slotStyle(slot, imageIndex) {
   box-shadow: 0 18px 42px rgba(20, 32, 26, .3);
 }
 .showcase-photo-image {
-  animation: photoSwap 480ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: photoSwap 900ms cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes materialEnter {
+  from { opacity: 0; filter: blur(9px); }
+  to { opacity: 1; filter: blur(0); }
 }
 @keyframes photoSwap {
   from { opacity: 0; filter: blur(5px); transform: scale(.985); }
@@ -158,12 +178,19 @@ function slotStyle(slot, imageIndex) {
 
 .node-identity {
   max-width: 38%;
+  max-height: 46%;
+  overflow: hidden;
   padding: 12px 15px;
   color: #17231d;
   border-radius: 10px;
   background: rgba(248, 248, 243, .78);
   backdrop-filter: blur(5px);
   box-shadow: 0 10px 28px rgba(28, 43, 35, .1);
+  animation: identityEnter 900ms cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes identityEnter {
+  from { opacity: 0; filter: blur(5px); }
+  to { opacity: 1; filter: blur(0); }
 }
 .route-seq {
   margin-bottom: 7px;
@@ -207,6 +234,8 @@ h2 {
 }
 .reduce-motion .showcase-photo,
 .reduce-motion .showcase-photo-image,
+.reduce-motion .material-panel,
+.reduce-motion .node-identity,
 .reduce-motion {
   animation: none;
   transition: opacity 1ms linear;

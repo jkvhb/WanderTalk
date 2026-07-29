@@ -107,6 +107,7 @@ export const useFlightStore = defineStore('flight', () => {
 
   function attach(a) {
     adapter = a
+    adapter?.setPlaybackRate?.(speed.value)
     applySample()
   }
   function detach() {
@@ -177,6 +178,7 @@ export const useFlightStore = defineStore('flight', () => {
 
   function setSpeed(s) {
     speed.value = s
+    adapter?.setPlaybackRate?.(s)
   }
 
   return {

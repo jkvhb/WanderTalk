@@ -7,6 +7,10 @@ import { createFlightMap } from '../composables/useMapLibre'
 import { getImage } from '../utils/db'
 import { normalizeShowcaseStory } from '../utils/showcaseStory'
 import { resolveMapShowcaseLayout } from '../utils/mapShowcaseLayout'
+import {
+  shouldResolveShowcaseLayout,
+  isShowcaseLayoutVisible,
+} from '../utils/showcasePresentation'
 import MapNodeShowcase from './MapNodeShowcase.vue'
 
 const emit = defineEmits(['close'])
@@ -40,6 +44,7 @@ function fmt(sec) {
 }
 
 const imgUrls = ref([])
+const imagesReady = ref(false)
 let imageLoadToken = 0
 function revokeImgs() {
   imgUrls.value.forEach((url) => URL.revokeObjectURL(url))
@@ -49,8 +54,12 @@ watch(
   () => showcase.value?.stopIndex,
   async (index) => {
     const token = ++imageLoadToken
+    imagesReady.value = false
     revokeImgs()
-    if (index == null || index < 0) return
+    if (index == null || index < 0) {
+      imagesReady.value = true
+      return
+    }
     const ids = flight.timeline?.stops?.[index]?.node?.images || []
     const urls = []
     for (const id of ids) {
@@ -62,7 +71,13 @@ watch(
       return
     }
     imgUrls.value = urls
-    if ((showcase.value?.enterFrac ?? 0) >= 0.85) scheduleLayout()
+    imagesReady.value = true
+    if (shouldResolveShowcaseLayout({
+      enterFrac: showcase.value?.enterFrac,
+      stopIndex: showcase.value?.stopIndex,
+      layoutReadyStop: layoutReadyStop.value,
+      imagesReady: imagesReady.value,
+    })) scheduleLayout()
   },
 )
 
@@ -88,7 +103,7 @@ const compiledLayout = ref(mapOnlyLayout())
 const layoutByStop = new Map()
 const presetCounts = {}
 let layoutRetryId = 0
-let layoutReadyStop = -1
+const layoutReadyStop = ref(-1)
 
 function sampledRoutePoints(stopIndex) {
   const stops = flight.timeline?.stops || []
@@ -135,7 +150,7 @@ function recomputeLayout() {
   }
   layoutByStop.set(stopIndex, result)
   compiledLayout.value = result
-  layoutReadyStop = stopIndex
+  layoutReadyStop.value = stopIndex
   return true
 }
 
@@ -150,16 +165,26 @@ function scheduleLayout(retries = 12) {
 watch(
   () => showcase.value?.stopIndex,
   (stopIndex) => {
-    layoutReadyStop = -1
+    layoutReadyStop.value = -1
     compiledLayout.value = mapOnlyLayout()
-    if (stopIndex != null && (showcase.value?.enterFrac ?? 0) >= 0.85) scheduleLayout()
+    if (shouldResolveShowcaseLayout({
+      enterFrac: showcase.value?.enterFrac,
+      stopIndex,
+      layoutReadyStop: layoutReadyStop.value,
+      imagesReady: imagesReady.value,
+    })) scheduleLayout()
   },
 )
 watch(
   () => showcase.value?.enterFrac,
   (frac) => {
     const stopIndex = showcase.value?.stopIndex
-    if (frac >= 0.85 && stopIndex != null && layoutReadyStop !== stopIndex) scheduleLayout()
+    if (shouldResolveShowcaseLayout({
+      enterFrac: frac,
+      stopIndex,
+      layoutReadyStop: layoutReadyStop.value,
+      imagesReady: imagesReady.value,
+    })) scheduleLayout()
   },
 )
 
@@ -187,8 +212,12 @@ function buildAdapter() {
       stopAudioEl()
       audioUrl = URL.createObjectURL(blob)
       audioEl = new Audio(audioUrl)
+      audioEl.playbackRate = flight.speed
       audioEl.currentTime = offset || 0
       audioEl.play().catch(() => {})
+    },
+    setPlaybackRate: (rate) => {
+      if (audioEl) audioEl.playbackRate = rate
     },
     stopAudio: stopAudioEl,
   }
@@ -293,7 +322,7 @@ function toggle() {
       </div>
 
       <MapNodeShowcase
-        v-if="showcase"
+        v-if="showcase && isShowcaseLayoutVisible(showcase.stopIndex, layoutReadyStop)"
         :node="activeNode"
         :images="imgUrls"
         :layout="compiledLayout"
