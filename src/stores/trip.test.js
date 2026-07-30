@@ -196,6 +196,38 @@ describe('trip store 编辑', () => {
     expect(t.plan.days[0].segments).toBeNull()
   })
 
+  it('replacePlan 自动迁移旧版固定318坐标并提示重新计算路线', () => {
+    const t = useTripStore()
+    t.replacePlan({
+      name: '318 川藏线（成都 → 拉萨）',
+      days: [{
+        segments: [{ path: [[98.593, 29.68], [98.15, 29.72]] }],
+        waypoints: [
+          { name: '成都', lng: 104.0665, lat: 30.5728 },
+          { name: '康定', lng: 101.9576, lat: 30.0556 },
+          { name: '折多山垭口', lng: 101.8, lat: 30.038 },
+          { name: '理塘', lng: 100.27, lat: 29.997 },
+          { name: '巴塘', lng: 99.108, lat: 30.004 },
+          { name: '芒康', lng: 98.593, lat: 29.68 },
+          { name: '东达山', lng: 98.15, lat: 29.72, narration: '旧旁白', images: ['a'] },
+          { name: '左贡', lng: 97.841, lat: 29.671 },
+          { name: '拉萨', lng: 91.1409, lat: 29.6456 },
+        ],
+      }],
+    })
+
+    const dongda = t.plan.days[0].waypoints.find((point) => point.name === '东达山')
+    expect(dongda).toMatchObject({
+      placeId: 'dongda-pass',
+      lng: 98.003489,
+      lat: 29.709959,
+      narration: '旧旁白',
+      images: ['a'],
+    })
+    expect(t.plan.days[0].segments).toBeNull()
+    expect(t.routeNotice).toContain('旧版地点坐标已更新')
+  })
+
   it('归一化后每个节点有 narration 字段，路书有 voice/rate', () => {
     const t = useTripStore()
     t.loadPreset318()

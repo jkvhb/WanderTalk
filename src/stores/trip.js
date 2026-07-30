@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { preset318 } from '../data/preset318'
 import { preset318Narration } from '../data/preset318Narration'
 import { isContentNode } from '../utils/contentNode'
+import { migrateFixed318Plan } from '../utils/fixed318Migration'
 
 // 单天结构归一化：保证 dayNumber 连续、路线元数据完整、segments 字段存在。
 function isRecord(value) {
@@ -53,17 +54,20 @@ function normalizeDay(day, i) {
 }
 
 function normalizePlan(raw) {
+  const source = isRecord(raw) ? cloneJsonValue(raw) : {}
   return {
-    name: raw.name ?? '未命名路书',
-    description: raw.description ?? '',
-    voice: raw.voice ?? 'xiaoxiao',
-    rate: typeof raw.rate === 'number' ? raw.rate : 1,
-    days: (raw.days ?? []).map(normalizeDay),
+    ...source,
+    name: source.name ?? '未命名路书',
+    description: source.description ?? '',
+    voice: source.voice ?? 'xiaoxiao',
+    rate: typeof source.rate === 'number' ? source.rate : 1,
+    days: (source.days ?? []).map(normalizeDay),
   }
 }
 
 export const useTripStore = defineStore('trip', () => {
   const plan = ref(null)
+  const routeNotice = ref('')
 
   const dayCount = computed(() => plan.value?.days.length ?? 0)
 
@@ -78,6 +82,7 @@ export const useTripStore = defineStore('trip', () => {
 
   function loadPreset318() {
     plan.value = normalizePlan(structuredClone(preset318))
+    routeNotice.value = ''
   }
 
   function newEmptyPlan() {
@@ -85,11 +90,16 @@ export const useTripStore = defineStore('trip', () => {
   }
 
   function replacePlan(raw) {
-    plan.value = normalizePlan(raw)
+    const result = migrateFixed318Plan(raw)
+    plan.value = normalizePlan(result.plan)
+    routeNotice.value = result.changedDays.length
+      ? `旧版地点坐标已更新（Day ${result.changedDays.join('、')}），请重新计算驾驶路线`
+      : ''
   }
 
   function clear() {
     plan.value = null
+    routeNotice.value = ''
   }
 
   // —— 天编辑 ——
@@ -254,11 +264,12 @@ export const useTripStore = defineStore('trip', () => {
         }
       }
     }
-    plan.value = normalizePlan(raw)
+    replacePlan(raw)
   }
 
   return {
     plan,
+    routeNotice,
     dayCount,
     allWaypoints,
     loadPreset318,
@@ -283,6 +294,7 @@ export const useTripStore = defineStore('trip', () => {
     setChoreography,
     setVoice,
     setRate,
+    clearRouteNotice: () => { routeNotice.value = '' },
     loadPresetNarration,
     exportJson,
     importJson,

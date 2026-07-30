@@ -31,6 +31,8 @@ const stop = (...args) => place(...args, { narrate: true, roles: ['stop'] })
 const overnight = (...args) => place(...args, { narrate: true, roles: ['stop', 'overnight'] })
 
 export const preset318 = {
+  presetId: 'fixed-318',
+  routeDataVersion: '2026-07-22',
   name: '318 川藏线（成都 → 拉萨）',
   description: '依据《318川藏线路书》重整的九天主线；支线不混入飞行主线路。',
   days: [
