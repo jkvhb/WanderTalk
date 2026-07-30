@@ -46,7 +46,7 @@ function directLeg(from, to) {
 function normalizeLegPath(path, from, to) {
   const fallback = directLeg(from, to)
   if (!Array.isArray(path) || path.length < 2 || path.some((point) => !validCoordinate(point))) {
-    return fallback
+    return []
   }
 
   const start = fallback[0]
@@ -64,12 +64,72 @@ function normalizeLegPath(path, from, to) {
     haversine(normalized[0], start) > LEG_ENDPOINT_TOLERANCE_METERS ||
     haversine(normalized.at(-1), end) > LEG_ENDPOINT_TOLERANCE_METERS
   ) {
-    return fallback
+    return []
   }
 
   if (!sameCoordinate(normalized[0], start)) normalized.unshift(start)
   if (!sameCoordinate(normalized.at(-1), end)) normalized.push(end)
   return normalized
+}
+
+function segmentForLeg(day, index, from, to) {
+  const segments = Array.isArray(day?.segments) ? day.segments : []
+  const fromName = from?.name
+  const toName = to?.name
+  const named = segments.find((segment) => (
+    (segment?.fromName === fromName && segment?.toName === toName) ||
+    (segment?.fromName === toName && segment?.toName === fromName)
+  ))
+  if (named) return named
+
+  const indexed = segments[index]
+  if (!indexed?.fromName && !indexed?.toName) return indexed ?? null
+  return null
+}
+
+export function findFlightRouteIssues(plan) {
+  if (!Array.isArray(plan?.days)) return []
+  const issues = []
+  for (const day of plan.days) {
+    const waypoints = Array.isArray(day?.waypoints) ? day.waypoints : []
+    for (let index = 0; index < waypoints.length - 1; index += 1) {
+      const segment = segmentForLeg(
+        day,
+        index,
+        waypoints[index],
+        waypoints[index + 1],
+      )
+      if (!Array.isArray(segment?.path) || segment.path.length < 2) {
+        issues.push({
+          dayNumber: day.dayNumber,
+          fromName: waypoints[index]?.name ?? '',
+          toName: waypoints[index + 1]?.name ?? '',
+          reason: 'missing',
+        })
+      } else if (segment.path.some((point) => !validCoordinate(point))) {
+        issues.push({
+          dayNumber: day.dayNumber,
+          fromName: waypoints[index]?.name ?? '',
+          toName: waypoints[index + 1]?.name ?? '',
+          reason: 'invalid',
+        })
+      } else if (
+        normalizeLegPath(
+          segment.path,
+          waypoints[index],
+          waypoints[index + 1],
+        ).length < 2
+      ) {
+        issues.push({
+          dayNumber: day.dayNumber,
+          fromName: waypoints[index]?.name ?? '',
+          toName: waypoints[index + 1]?.name ?? '',
+          reason: 'disconnected',
+        })
+      }
+    }
+  }
+  return issues
 }
 
 function routeDistance(path) {
@@ -105,7 +165,8 @@ function cloneData(value) {
 
 // 把 plan 里所有「有旁白」的节点按全局顺序收集成 stops。
 // routeToHere = 上一个有旁白节点 → 当前节点之间、串联沿途各 leg 的折线。
-// 每个 leg 优先用同一天的 day.segments[i].path（segments[i] 连接 waypoints[i]→[i+1]），否则两点直线。
+// 每个 leg 只接受已计算的真实驾驶折线；优先按起终点名称找段，兼容旧数据中的段顺序错位。
+// 缺失、坏坐标或与端点断裂时返回空路径，由预览入口提示用户重算，绝不伪造两点直线。
 export function collectNarratedStops(plan) {
   if (!Array.isArray(plan?.days)) return []
 
@@ -119,7 +180,9 @@ export function collectNarratedStops(plan) {
     const a = flat[k]
     const b = flat[k + 1]
     const segmentPath =
-      a.day === b.day ? a.day.segments?.[a.i]?.path : null
+      a.day === b.day
+        ? segmentForLeg(a.day, a.i, a.wp, b.wp)?.path
+        : null
     return normalizeLegPath(segmentPath, a.wp, b.wp)
   }
 

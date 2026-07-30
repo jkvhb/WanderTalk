@@ -3,7 +3,11 @@ import { ref, computed } from 'vue'
 import { useTripStore } from './trip'
 import { audioKey } from '../composables/useTts'
 import { getCachedAudio } from '../utils/db'
-import { collectNarratedStops, computeTotalDistance } from '../utils/flightStops'
+import {
+  collectNarratedStops,
+  computeTotalDistance,
+  findFlightRouteIssues,
+} from '../utils/flightStops'
 import { buildFlightTimeline, sampleAt } from '../utils/flightTimeline'
 import { formatDistance } from '../utils/format'
 import { validatePlan } from '../utils/planValidation'
@@ -37,6 +41,14 @@ export const useFlightStore = defineStore('flight', () => {
     const validationIssues = validatePlan(trip.plan)
     if (validationIssues.length) {
       error.value = `路书校验未通过：${validationIssues[0].message}`
+      return false
+    }
+    const routeIssues = findFlightRouteIssues(trip.plan)
+    if (routeIssues.length) {
+      const first = routeIssues[0]
+      error.value =
+        `视频不会使用节点直线代替驾驶路线。请先重新计算驾车路线：` +
+        `Day ${first.dayNumber} ${first.fromName} → ${first.toName}`
       return false
     }
     const stops0 = collectNarratedStops(trip.plan)
