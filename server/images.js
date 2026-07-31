@@ -33,10 +33,11 @@ function buildImageQueryMessages(nodes) {
   ]
 }
 
-// callLLM({apiKey,model,messages,json}) -> string，同 narration.js 的 callDeepSeek 签名
+// callLLM({provider,apiKey,model,messages,json}) -> string，统一供应商调用签名
 export function makeImageQueryGenerator({ callLLM }) {
-  return async function generateImageQueries({ apiKey, nodes, model }) {
+  return async function generateImageQueries({ provider, apiKey, nodes, model }) {
     const content = await callLLM({
+      provider,
       apiKey,
       model,
       messages: buildImageQueryMessages(nodes),

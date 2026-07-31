@@ -41,4 +41,12 @@ describe('settings store', () => {
     expect(s.hasTiandituKey).toBe(true)
     expect(localStorage.getItem('318:tiandituKey')).toBe('tdt-123')
   })
+
+  it('默认使用 Kimi，并可把 DeepSeek 作为手动备用保存', () => {
+    const s = useSettingsStore()
+    expect(s.llmProvider).toBe('kimi')
+    s.setLlmProvider('deepseek')
+    expect(s.llmProvider).toBe('deepseek')
+    expect(localStorage.getItem('318:llmProvider')).toBe('deepseek')
+  })
 })

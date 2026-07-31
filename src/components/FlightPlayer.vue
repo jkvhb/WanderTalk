@@ -5,237 +5,241 @@ import { useFlightStore } from '../stores/flight'
 import { useSettingsStore } from '../stores/settings'
 import { createFlightMap } from '../composables/useMapLibre'
 import { getImage } from '../utils/db'
-import { compileChoreography } from '../utils/choreography'
-import { hashString } from '../utils/rand'
+import { normalizeShowcaseStory } from '../utils/showcaseStory'
+import { resolveMapShowcaseLayout } from '../utils/mapShowcaseLayout'
+import {
+  canCommitShowcaseLayout,
+  shouldResolveShowcaseLayout,
+  isShowcaseLayoutVisible,
+} from '../utils/showcasePresentation'
+import MapNodeShowcase from './MapNodeShowcase.vue'
 
 const emit = defineEmits(['close'])
 const flight = useFlightStore()
 const settings = useSettingsStore()
 
 const mapEl = ref(null)
-const state = ref('loading') // loading | no-key | error | ready
+const stageEl = ref(null)
+const state = ref('loading')
 const mapError = ref('')
 let mapAdapter = null
 let audioEl = null
+let audioUrl = ''
 
 const sample = computed(() => flight.sample)
 const overlay = computed(() => sample.value?.overlay)
+const showcase = computed(() => sample.value?.showcase ?? null)
 const altitude = computed(() => sample.value?.altitude)
-// 海拔 HUD 只在旅行段显示（到站后展示页自带海拔徽标，避免重复）
 const showAltitude = computed(() => altitude.value != null && sample.value?.phase === 'fly')
-
-const stageEl = ref(null)
-
-// 当前展示页对应的节点（取名/地址/备注）
 const activeNode = computed(() => {
-  const i = showcase.value?.stopIndex
-  if (i == null || i < 0) return null
-  return flight.timeline?.stops?.[i]?.node ?? null
+  const index = showcase.value?.stopIndex
+  if (index == null || index < 0) return null
+  return flight.timeline?.stops?.[index]?.node ?? null
 })
 
 function fmt(sec) {
   if (!Number.isFinite(sec)) return '0:00'
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  return `${m}:${String(s).padStart(2, '0')}`
+  const minutes = Math.floor(sec / 60)
+  const seconds = Math.floor(sec % 60)
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
-// —— 圆形揭幕：圆心=到站点在当前相机下的屏幕投影，最大半径=舞台对角线 ——
-// 注意：必须声明在下方 imgUrls watch 之前——watch 创建时会同步执行 getter，
-// 其 getter 引用 showcase，若 showcase 声明在后面会触发 TDZ 报错（4b 踩过的坑）。
-const showcase = computed(() => sample.value?.showcase ?? null)
-const wipeOrigin = ref({ x: 0, y: 0, maxR: 0 })
-
-// ??????????????????????????????????
-// ????????? idle ???????????????????
-const tilesReadyForReveal = ref(true)
-const holdClosingReveal = ref(false)
-let tileReadyToken = 0
-watch(
-  () => showcase.value?.stopIndex,
-  async (stopIndex) => {
-    const token = ++tileReadyToken
-    holdClosingReveal.value = false
-    tilesReadyForReveal.value = stopIndex == null
-    if (stopIndex == null) return
-    await mapAdapter?.waitForTiles?.({ timeoutMs: 2500 })
-    if (token === tileReadyToken) {
-      tilesReadyForReveal.value = true
-      holdClosingReveal.value = false
-    }
-  },
-)
-watch(
-  () => showcase.value?.revealFrac,
-  (next, previous) => {
-    if (next == null || previous == null) return
-    if (previous >= 0.999 && next < 0.999 && !tilesReadyForReveal.value) holdClosingReveal.value = true
-  },
-)
-
-
-function updateWipeOrigin() {
-  const stage = stageEl.value?.getBoundingClientRect()
-  const i = showcase.value?.stopIndex
-  if (!stage || i == null || i < 0 || !mapAdapter?.project) return false
-  const stop = flight.timeline?.stops?.[i]
-  if (!stop) return false
-  // 圆心锚路线终点（驾车路线吸附道路）；首节点无路线退回节点坐标
-  const route = stop.routeToHere
-  const lngLat = route?.length ? route[route.length - 1] : [stop.node.lng, stop.node.lat]
-  const pt = mapAdapter.project(lngLat)
-  if (!pt) return false
-  wipeOrigin.value = { x: pt.x, y: pt.y, maxR: Math.hypot(stage.width, stage.height) }
-  return true
-}
-// 地图未建成（懒建图竞态）时单次计算会失败——有限重试，否则首个 dwell 的展示页
-// 会被 circle(0) 整段裁没且无自愈时机
-let originRetryId = 0
-function tryUpdateWipeOrigin(retries = 10) {
-  tileReadyToken++
-  if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(originRetryId)
-  if (updateWipeOrigin() || retries <= 0) return
-  if (typeof requestAnimationFrame !== 'undefined') {
-    originRetryId = requestAnimationFrame(() => tryUpdateWipeOrigin(retries - 1))
-  }
-}
-// 进入新 dwell 时重算圆心（相机整段不动，无需二次重算）。
-// 同步立即算——store 在同一 tick 已应用相机，而 stage/map 都不依赖展示页 div 挂载；
-// 等 nextTick 反而给"seek 进揭幕边缘"留出一帧错圆心
-watch(
-  () => showcase.value?.stopIndex,
-  () => tryUpdateWipeOrigin(),
-)
-
-const wipeStyle = computed(() => {
-  const sc = showcase.value
-  if (!sc) return null
-  const { x, y, maxR } = wipeOrigin.value
-  const revealFrac = holdClosingReveal.value ? 1 : sc.revealFrac
-  const r = Math.max(0, revealFrac) * (maxR || 0)
-  return { clipPath: `circle(${r.toFixed(1)}px at ${x}px ${y}px)` }
-})
-
-// 旁白正文剥掉 SSML 标签后展示（<break/> <emphasis> 等来自 Phase 3 文案）
-const plainNarration = computed(() => (activeNode.value?.narration || '').replace(/<[^>]+>/g, '').trim())
-
-// —— 图片轮播：展示页切换节点时加载该节点图片 Blob → objectURL ——
 const imgUrls = ref([])
+const imagesReady = ref(false)
+let imageLoadToken = 0
 function revokeImgs() {
-  imgUrls.value.forEach((u) => URL.revokeObjectURL(u))
+  imgUrls.value.forEach((url) => URL.revokeObjectURL(url))
   imgUrls.value = []
 }
 watch(
   () => showcase.value?.stopIndex,
-  async (idx) => {
+  async (index) => {
+    const token = ++imageLoadToken
+    imagesReady.value = false
     revokeImgs()
-    if (idx == null || idx < 0) return
-    const ids = flight.timeline?.stops?.[idx]?.node?.images || []
+    if (index == null || index < 0) {
+      imagesReady.value = true
+      return
+    }
+    const ids = flight.timeline?.stops?.[index]?.node?.images || []
     const urls = []
     for (const id of ids) {
-      const e = await getImage(id)
-      if (e?.blob) urls.push(URL.createObjectURL(e.blob))
+      const entry = await getImage(id)
+      if (entry?.blob) urls.push(URL.createObjectURL(entry.blob))
+    }
+    if (token !== imageLoadToken) {
+      urls.forEach((url) => URL.revokeObjectURL(url))
+      return
     }
     imgUrls.value = urls
+    imagesReady.value = true
+    if (shouldResolveShowcaseLayout({
+      enterFrac: showcase.value?.enterFrac,
+      stopIndex: showcase.value?.stopIndex,
+      layoutReadyStop: layoutReadyStop.value,
+      imagesReady: imagesReady.value,
+    })) scheduleLayout()
   },
 )
-const currentImg = computed(() => imgUrls.value[showcase.value?.imageIndex ?? 0] || null)
 
-// —— Phase 4e：编排动效（LLM 配参 + 词汇表编译，全部 transform/opacity，卡片 pointer-events:none）——
-// computed 按 activeNode 缓存 = 每站只编译一次；seed 取 narrationHash（生成时的旁白哈希，
-// 十六进制）保证与配置同源，缺失则退回现场旁白哈希——确定性：同节点每次播放动效一致
-const compiledChoreo = computed(() => {
-  const node = activeNode.value
-  const cfg = node?.choreography?.config
-  if (!cfg) return null
-  // imageCount 取已加载成功的 objectURL 数（而非 node.images 长度）：
-  // 加载中/个别 Blob 缺失时自动回落，绝不渲染空白卡片
-  const imageCount = imgUrls.value.length
-  const hex = node.choreography.narrationHash
-  const seed = hex ? parseInt(hex, 16) >>> 0 : hashString(node.narration || '')
-  return compileChoreography(cfg, { imageCount, seed })
-})
-// 卡片模式：有配置且 ≥2 张图已加载完（异步加载中先回落全屏铺底，不闪半空卡）
-const cardMode = computed(() => compiledChoreo.value?.mode === 'cards')
-// 1 张图 + 有配置：全屏铺底叠加微呼吸（≤2%）
-const fullbleedBreathe = computed(() =>
-  compiledChoreo.value?.mode === 'fullbleed' ? compiledChoreo.value.breathe : null,
-)
-const fullbleedStyle = computed(() => {
-  const b = fullbleedBreathe.value
-  if (!b) return null
-  return { '--breathe-amp': (1 + b.amp).toFixed(4), '--breathe-period': b.periodS.toFixed(2) + 's' }
-})
+const prefersReducedMotion = ref(false)
+let reducedMotionMedia = null
+function syncReducedMotion(event) {
+  prefersReducedMotion.value = !!event?.matches
+}
 
-// 相位表 → 当前相位：narrationFrac 对照 at（取最后一个 at ≤ frac 的相位）
-const phaseIndex = computed(() => {
-  const c = compiledChoreo.value
-  if (!c || c.mode !== 'cards' || !c.phases?.length) return -1
-  const frac = showcase.value?.narrationFrac ?? 0
-  let idx = 0
-  for (let k = 0; k < c.phases.length; k++) {
-    if (frac >= c.phases[k].at) idx = k
-  }
-  return idx
-})
-const currentPhase = computed(() =>
-  phaseIndex.value >= 0 ? compiledChoreo.value?.phases?.[phaseIndex.value] ?? null : null,
-)
-const focusIndex = computed(() => currentPhase.value?.focus ?? -1)
-
-// pulse 强调：相位切换瞬间一次性小弹跳——交替 a/b 类名重启同款动画
-const pulseFlip = ref(false)
-watch(phaseIndex, (val, old) => {
-  if (val < 0 || val === old) return
-  if (currentPhase.value?.accent === 'pulse') pulseFlip.value = !pulseFlip.value
-})
-
-// 每卡 CSS 变量（编译产物 → 参数化静态 keyframes）；焦点卡置顶交给内联 zIndex
-function cardStyle(card, idx) {
+function mapOnlyLayout() {
   return {
-    left: card.base.xPct.toFixed(2) + '%',
-    top: card.base.yPct.toFixed(2) + '%',
-    zIndex: idx === focusIndex.value ? 40 : card.base.z,
-    '--rot0': card.base.rotDeg.toFixed(2) + 'deg',
-    '--dx': card.drift.dxPct.toFixed(2) + '%',
-    '--dy': card.drift.dyPct.toFixed(2) + '%',
-    '--drot': card.drift.dRotDeg.toFixed(2) + 'deg',
-    '--drift-period': card.drift.periodS.toFixed(2) + 's',
-    '--drift-delay': card.drift.delayS.toFixed(2) + 's',
-    '--breathe-amp': (1 + card.breathe.amp).toFixed(4),
-    '--breathe-period': card.breathe.periodS.toFixed(2) + 's',
-    '--enter-delay': card.enter.delayS.toFixed(2) + 's',
-    '--enter-dur': card.enter.durS.toFixed(2) + 's',
+    presetId: 'map-only',
+    panel: null,
+    slots: [],
+    identity: { xPct: 4, yPct: 6, align: 'left' },
+    mapTarget: { xPct: 50, yPct: 50 },
+    imageOrder: [],
+    beats: [],
   }
 }
+
+const compiledLayout = ref(mapOnlyLayout())
+const layoutByStop = new Map()
+const presetCounts = {}
+let layoutRetryId = 0
+const layoutReadyStop = ref(-1)
+
+function sampledRoutePoints(stopIndex) {
+  const stops = flight.timeline?.stops || []
+  const paths = [stops[stopIndex]?.routeToHere, stops[stopIndex + 1]?.routeToHere]
+  const points = []
+  for (const path of paths) {
+    if (!Array.isArray(path) || path.length === 0) continue
+    const step = Math.max(1, Math.ceil(path.length / 80))
+    for (let index = 0; index < path.length; index += step) points.push(path[index])
+    points.push(path[path.length - 1])
+  }
+  return points
+}
+
+function recomputeLayout() {
+  if (!canCommitShowcaseLayout({
+    enterFrac: showcase.value?.enterFrac,
+    stopIndex: showcase.value?.stopIndex,
+    layoutReadyStop: layoutReadyStop.value,
+    imagesReady: imagesReady.value,
+    cameraSettled: mapAdapter?.isCameraSettled?.() === true,
+  })) return false
+  const stage = stageEl.value?.getBoundingClientRect()
+  const stopIndex = showcase.value?.stopIndex
+  const node = activeNode.value
+  if (!stage || !(stage.width > 0) || !(stage.height > 0) || stopIndex == null || !node || !mapAdapter?.project) {
+    return false
+  }
+  const nodePoint = mapAdapter.project([node.lng, node.lat])
+  if (!nodePoint) return false
+  const routePoints = sampledRoutePoints(stopIndex)
+    .map((point) => mapAdapter.project(point))
+    .filter(Boolean)
+  const story = normalizeShowcaseStory(node.choreography?.config, imgUrls.value.length)
+  const previousPreset = layoutByStop.get(stopIndex - 1)?.presetId
+  const result = resolveMapShowcaseLayout({
+    story,
+    imageCount: imgUrls.value.length,
+    viewport: { width: stage.width, height: stage.height },
+    nodePoint,
+    routePoints,
+    recentPresetIds: previousPreset ? [previousPreset] : [],
+    dayPresetCounts: presetCounts,
+  })
+  const prior = layoutByStop.get(stopIndex)
+  if (prior?.presetId && prior.presetId !== result.presetId) {
+    presetCounts[prior.presetId] = Math.max(0, (presetCounts[prior.presetId] || 1) - 1)
+  }
+  if (!prior || prior.presetId !== result.presetId) {
+    presetCounts[result.presetId] = (presetCounts[result.presetId] || 0) + 1
+  }
+  layoutByStop.set(stopIndex, result)
+  compiledLayout.value = result
+  layoutReadyStop.value = stopIndex
+  return true
+}
+
+// 手动跳转可能在节点镜头刚开始移动时就到达 enterFrac=1；最多等约 4 秒，
+// 以地图引擎实际停止为准，而不是再次猜测一个时间轴百分比。
+function scheduleLayout(retries = 240) {
+  if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(layoutRetryId)
+  if (recomputeLayout() || retries <= 0) return
+  if (typeof requestAnimationFrame !== 'undefined') {
+    layoutRetryId = requestAnimationFrame(() => scheduleLayout(retries - 1))
+  }
+}
+
+watch(
+  () => showcase.value?.stopIndex,
+  (stopIndex) => {
+    layoutReadyStop.value = -1
+    compiledLayout.value = mapOnlyLayout()
+    if (shouldResolveShowcaseLayout({
+      enterFrac: showcase.value?.enterFrac,
+      stopIndex,
+      layoutReadyStop: layoutReadyStop.value,
+      imagesReady: imagesReady.value,
+    })) scheduleLayout()
+  },
+)
+watch(
+  () => showcase.value?.enterFrac,
+  (frac) => {
+    const stopIndex = showcase.value?.stopIndex
+    if (shouldResolveShowcaseLayout({
+      enterFrac: frac,
+      stopIndex,
+      layoutReadyStop: layoutReadyStop.value,
+      imagesReady: imagesReady.value,
+    })) scheduleLayout()
+  },
+)
 
 function stopAudioEl() {
   if (audioEl) {
     try {
       audioEl.pause()
     } catch {
-      /* 忽略 */
+      // 浏览器可能已自动释放音频。
     }
     audioEl = null
+  }
+  if (audioUrl) {
+    URL.revokeObjectURL(audioUrl)
+    audioUrl = ''
   }
 }
 
 function buildAdapter() {
   return {
-    setCamera: (cam) => mapAdapter?.setCamera(cam),
+    setCamera: (camera) => mapAdapter?.setCamera(camera),
     setCar: (car) => mapAdapter?.setCar?.(car),
-    setProgress: (p) => mapAdapter?.setProgress?.(p),
+    setProgress: (progress) => mapAdapter?.setProgress?.(progress),
     playAudio: (blob, offset) => {
       stopAudioEl()
-      audioEl = new Audio(URL.createObjectURL(blob))
+      audioUrl = URL.createObjectURL(blob)
+      audioEl = new Audio(audioUrl)
+      audioEl.playbackRate = flight.speed
       audioEl.currentTime = offset || 0
       audioEl.play().catch(() => {})
+    },
+    setPlaybackRate: (rate) => {
+      if (audioEl) audioEl.playbackRate = rate
     },
     stopAudio: stopAudioEl,
   }
 }
 
 onMounted(async () => {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    reducedMotionMedia = window.matchMedia('(prefers-reduced-motion: reduce)')
+    syncReducedMotion(reducedMotionMedia)
+    reducedMotionMedia.addEventListener?.('change', syncReducedMotion)
+    reducedMotionMedia.addListener?.(syncReducedMotion)
+  }
   if (!settings.tiandituKey) {
     state.value = 'no-key'
     return
@@ -245,27 +249,27 @@ onMounted(async () => {
     state.value = 'error'
     return
   }
-  // 初始相机 = 首节点
   const first = flight.timeline.stops[0].node
   mapAdapter = createFlightMap({
     container: mapEl.value,
     tk: settings.tiandituKey,
     center: [first.lng, first.lat],
-    onError: (m) => {
-      mapError.value = m
+    onError: (message) => {
+      mapError.value = message
     },
   })
-  // 画全程路线：不过滤，leg 下标须与 stops 下标对齐（adapter 自行处理 null/短段）
-  mapAdapter.drawRoute(flight.timeline.stops.map((s) => s.routeToHere))
+  mapAdapter.drawRoute(flight.timeline.stops.map((stop) => stop.routeToHere))
   flight.attach(buildAdapter())
   flight.seek(0)
-  window.addEventListener('resize', updateWipeOrigin)
+  window.addEventListener('resize', scheduleLayout)
   state.value = 'ready'
 })
 
 onBeforeUnmount(() => {
-  if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(originRetryId)
-  window.removeEventListener('resize', updateWipeOrigin)
+  if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(layoutRetryId)
+  window.removeEventListener('resize', scheduleLayout)
+  reducedMotionMedia?.removeEventListener?.('change', syncReducedMotion)
+  reducedMotionMedia?.removeListener?.(syncReducedMotion)
   flight.pause()
   flight.detach()
   stopAudioEl()
@@ -280,252 +284,89 @@ function toggle() {
 
 <template>
   <div class="absolute inset-0 flex flex-col bg-black">
-    <!-- 顶栏 -->
     <div class="flex items-center justify-between px-3 py-2 text-white/80 text-sm bg-black/40">
       <span>飞行动画预览</span>
       <button class="px-2 py-0.5 rounded hover:bg-white/10" @click="emit('close')">✕ 关闭</button>
     </div>
 
-    <!-- 预览舞台：铺满预览区，给 MapLibre 一个确定尺寸的定位容器（精确 16:9 画幅留待导出阶段）-->
-    <div class="flex-1 relative overflow-hidden" ref="stageEl">
-        <!-- 注意：不能用 absolute inset-0——maplibre-gl.css 的 .maplibregl-map{position:relative}
-             会盖掉 Tailwind 的 absolute，令 inset-0 失效、容器塌成 0 高。用 w-full h-full 铺满父级。-->
-        <div ref="mapEl" class="w-full h-full"></div>
+    <div ref="stageEl" class="flex-1 relative overflow-hidden">
+      <div ref="mapEl" class="w-full h-full"></div>
 
-        <!-- 瓦片错误提示 -->
-        <p v-if="mapError" class="absolute top-2 left-2 right-2 text-xs text-red-200 bg-red-900/60 rounded px-2 py-1">
-          {{ mapError }}
+      <p v-if="mapError" class="absolute top-2 left-2 right-2 text-xs text-red-200 bg-red-900/60 rounded px-2 py-1">
+        {{ mapError }}
+      </p>
+
+      <div v-if="state === 'no-key'" class="absolute inset-0 flex items-center justify-center text-center text-white/80">
+        <div>
+          <p class="mb-2">缺少天地图 Key</p>
+          <RouterLink to="/settings" class="text-teal-300 underline">前往设置</RouterLink>
+        </div>
+      </div>
+      <div v-else-if="state === 'error'" class="absolute inset-0 flex items-center justify-center text-center text-white/80 p-6">
+        <div>
+          <p class="mb-2">{{ flight.error }}</p>
+          <ul v-if="flight.needsSynth.length" class="text-xs text-white/60">
+            <li v-for="name in flight.needsSynth" :key="name">{{ name }}</li>
+          </ul>
+        </div>
+      </div>
+
+      <div
+        v-if="overlay?.kind === 'intro'"
+        class="absolute inset-0 flex flex-col items-center justify-center bg-black/35 text-white text-center px-8"
+      >
+        <h2 class="text-3xl font-bold drop-shadow">{{ overlay.title }}</h2>
+        <p v-if="overlay.subtitle" class="mt-2 text-white/80">{{ overlay.subtitle }}</p>
+      </div>
+      <div
+        v-else-if="overlay?.kind === 'outro'"
+        class="absolute inset-0 flex flex-col items-center justify-center bg-black/45 text-white text-center gap-1"
+      >
+        <p v-for="(line, index) in overlay.lines" :key="index" :class="index === 0 ? 'text-2xl font-bold' : 'text-white/80'">
+          {{ line }}
         </p>
+      </div>
 
-        <!-- 状态：无 key / 错误 -->
-        <div v-if="state === 'no-key'" class="absolute inset-0 flex items-center justify-center text-center text-white/80 p-6">
-          <div>
-            <p class="mb-2">尚未配置天地图 key。</p>
-            <RouterLink to="/settings" class="text-accent underline">前往「设置」填写 →</RouterLink>
-          </div>
-        </div>
-        <div v-else-if="state === 'error'" class="absolute inset-0 flex items-center justify-center text-center text-white/80 p-6">
-          <div>
-            <p class="mb-2">{{ flight.error }}</p>
-            <ul v-if="flight.needsSynth.length" class="text-xs text-white/60">
-              <li v-for="n in flight.needsSynth" :key="n">· {{ n }}</li>
-            </ul>
-          </div>
-        </div>
+      <div v-if="showAltitude" class="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-black/50 text-white text-sm">
+        海拔 <span class="font-semibold">{{ altitude }}</span> m
+      </div>
 
-        <!-- 片头/片尾叠加层 -->
-        <div
-          v-if="overlay?.kind === 'intro'"
-          class="absolute inset-0 flex flex-col items-center justify-center bg-black/35 text-white text-center px-8"
+      <MapNodeShowcase
+        v-if="showcase && isShowcaseLayoutVisible(showcase.stopIndex, layoutReadyStop)"
+        :node="activeNode"
+        :images="imgUrls"
+        :layout="compiledLayout"
+        :enter-frac="showcase.enterFrac"
+        :narration-frac="showcase.narrationFrac"
+        :exit-frac="showcase.exitFrac"
+        :stop-index="showcase.stopIndex"
+        :stop-count="flight.timeline?.stops?.length || 0"
+        :reduced-motion="prefersReducedMotion"
+      />
+
+      <div v-if="state === 'ready'" class="absolute z-30 left-0 right-0 bottom-0 flex items-center gap-3 px-4 py-2 bg-black/50 text-white">
+        <button class="w-8 text-lg" @click="toggle">{{ flight.playing ? '⏸' : '▶' }}</button>
+        <input
+          type="range"
+          class="flex-1"
+          min="0"
+          :max="flight.totalDuration"
+          step="0.1"
+          :value="flight.t"
+          @input="flight.seek(Number($event.target.value))"
+        />
+        <span class="text-xs tabular-nums">{{ fmt(flight.t) }} / {{ fmt(flight.totalDuration) }}</span>
+        <select
+          :value="flight.speed"
+          class="bg-transparent border border-white/30 rounded text-xs px-1 py-0.5"
+          @change="flight.setSpeed(Number($event.target.value))"
         >
-          <h2 class="text-3xl font-bold drop-shadow">{{ overlay.title }}</h2>
-          <p v-if="overlay.subtitle" class="mt-2 text-white/80">{{ overlay.subtitle }}</p>
-        </div>
-        <div
-          v-else-if="overlay?.kind === 'outro'"
-          class="absolute inset-0 flex flex-col items-center justify-center bg-black/45 text-white text-center gap-1"
-        >
-          <p v-for="(l, i) in overlay.lines" :key="i" :class="i === 0 ? 'text-2xl font-bold' : 'text-white/80'">{{ l }}</p>
-        </div>
-
-        <!-- 海拔 HUD -->
-        <div v-if="showAltitude" class="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-black/50 text-white text-sm">
-          海拔 <span class="font-semibold">{{ altitude }}</span> m
-        </div>
-
-        <!-- 节点展示页：圆形揭幕（clip-path 由 revealFrac 逐帧驱动，圆心=到站点投影） -->
-        <div v-if="showcase && wipeStyle" class="absolute inset-0 bg-black overflow-hidden" :style="wipeStyle">
-          <!-- 无编排配置（或图未加载齐）：现状全屏铺底；1 图+配置时叠加微呼吸（≤2%） -->
-          <img
-            v-if="!cardMode && currentImg"
-            :src="currentImg"
-            class="absolute inset-0 w-full h-full object-cover"
-            :class="fullbleedBreathe ? 'choreo-breathe' : ''"
-            :style="fullbleedStyle"
-            alt=""
-          />
-          <div class="absolute inset-0 bg-black/40"></div>
-
-          <!-- 编排卡片（≥2 图且有配置）：容器 z-0 自建堆叠上下文，
-               卡内 z 再高也压不住后面的文字块/控件；:key 换站重启入场动画 -->
-          <div v-if="cardMode" :key="'cards-' + showcase.stopIndex" class="absolute inset-0 z-0 pointer-events-none">
-            <div
-              v-for="(card, idx) in compiledChoreo.cards"
-              :key="idx"
-              class="choreo-card"
-              :class="{ 'is-focus': idx === focusIndex, 'is-dim': focusIndex >= 0 && idx !== focusIndex }"
-              :style="cardStyle(card, idx)"
-            >
-              <div class="choreo-enter">
-                <div class="choreo-drift">
-                  <div
-                    class="choreo-pulse"
-                    :class="idx === focusIndex && currentPhase?.accent === 'pulse' ? (pulseFlip ? 'pulse-a' : 'pulse-b') : ''"
-                  >
-                    <img v-if="imgUrls[idx]" :src="imgUrls[idx]" class="choreo-img choreo-breathe" alt="" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 text-white/90 text-xs">
-            <span class="w-2 h-2 rounded-full bg-teal-300"></span>
-            正在讲解 · 第 {{ (showcase.stopIndex ?? 0) + 1 }}/{{ flight.timeline?.stops?.length || 0 }} 站
-          </div>
-
-          <div v-if="activeNode" class="absolute left-8 bottom-16 right-40 text-white">
-            <div class="flex items-baseline gap-3 flex-wrap">
-              <h2 class="text-3xl font-bold drop-shadow">{{ activeNode.name }}</h2>
-              <span v-if="activeNode.altitude != null" class="px-3 py-1 rounded-full bg-teal-700/90 text-teal-50 text-sm">
-                海拔 {{ activeNode.altitude }} m
-              </span>
-            </div>
-            <p v-if="activeNode.address" class="mt-1 text-sm text-white/70">{{ activeNode.address }}</p>
-            <p v-if="activeNode.note" class="mt-2 text-[15px] text-white/90 max-w-2xl">{{ activeNode.note }}</p>
-            <p
-              v-if="plainNarration"
-              class="mt-3 text-sm text-white/80 max-w-3xl"
-              style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden"
-            >{{ plainNarration }}</p>
-          </div>
-
-          <!-- 缩略图列只在非卡片模式显示（卡片本身就是图） -->
-          <div v-if="imgUrls.length > 1 && !cardMode" class="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
-            <div
-              v-for="(u, idx) in imgUrls"
-              :key="u"
-              class="w-20 h-14 rounded-md overflow-hidden border-2"
-              :class="idx === (showcase.imageIndex ?? 0) ? 'border-teal-300' : 'border-white/25'"
-            >
-              <img :src="u" class="w-full h-full object-cover" alt="" />
-            </div>
-          </div>
-        </div>
-
-        <!-- 控件条 -->
-        <div v-if="state === 'ready'" class="absolute left-0 right-0 bottom-0 flex items-center gap-3 px-4 py-2 bg-black/50 text-white">
-          <button class="w-8 text-lg" @click="toggle">{{ flight.playing ? '⏸' : '▶' }}</button>
-          <input
-            type="range"
-            class="flex-1"
-            min="0"
-            :max="flight.totalDuration"
-            step="0.1"
-            :value="flight.t"
-            @input="flight.seek(Number($event.target.value))"
-          />
-          <span class="text-xs tabular-nums">{{ fmt(flight.t) }} / {{ fmt(flight.totalDuration) }}</span>
-          <select
-            :value="flight.speed"
-            @change="flight.setSpeed(Number($event.target.value))"
-            class="bg-transparent border border-white/30 rounded text-xs px-1 py-0.5"
-          >
-            <option class="text-black" :value="0.5">0.5x</option>
-            <option class="text-black" :value="1">1x</option>
-            <option class="text-black" :value="1.5">1.5x</option>
-            <option class="text-black" :value="2">2x</option>
-          </select>
-        </div>
+          <option class="text-black" :value="0.5">0.5x</option>
+          <option class="text-black" :value="1">1x</option>
+          <option class="text-black" :value="1.5">1.5x</option>
+          <option class="text-black" :value="2">2x</option>
+        </select>
+      </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-/* —— Phase 4e 编排动效：少量静态参数化 keyframes + 每卡 CSS 变量 ——
-   只用 transform/opacity（GPU 合成），待机动画自走不占 JS 帧；
-   数值全部来自 compileChoreography（seed 确定性），此处零随机 */
-
-.choreo-card {
-  position: absolute;
-  width: 36%;
-  aspect-ratio: 4 / 3;
-  transform: translate(-50%, -50%) rotate(var(--rot0)) scale(1);
-  transition: transform 0.6s ease, opacity 0.6s ease; /* focusSwitch：600ms */
-  will-change: transform, opacity;
-}
-.choreo-card.is-focus {
-  transform: translate(-50%, -50%) rotate(var(--rot0)) scale(1.15);
-}
-.choreo-card.is-dim {
-  opacity: 0.75;
-}
-
-/* staggerIn：错峰滑入+淡入（both = 延迟期间保持初始态） */
-.choreo-enter {
-  width: 100%;
-  height: 100%;
-  animation: choreoEnter var(--enter-dur) ease-out var(--enter-delay) both;
-}
-@keyframes choreoEnter {
-  from {
-    opacity: 0;
-    transform: translateY(28px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* driftFloat：缓慢平移+微旋转往返（负 delay=相位差，卡片间不齐步） */
-.choreo-drift {
-  width: 100%;
-  height: 100%;
-  animation: choreoDrift var(--drift-period) ease-in-out var(--drift-delay) infinite alternate;
-}
-@keyframes choreoDrift {
-  from {
-    transform: translate(0, 0) rotate(0deg);
-  }
-  to {
-    transform: translate(var(--dx), var(--dy)) rotate(var(--drot));
-  }
-}
-
-/* pulseAccent：相位切换瞬间一次性小弹跳——a/b 同款动画交替重启 */
-.choreo-pulse {
-  width: 100%;
-  height: 100%;
-}
-.choreo-pulse.pulse-a {
-  animation: choreoPulseA 0.5s ease-out;
-}
-.choreo-pulse.pulse-b {
-  animation: choreoPulseB 0.5s ease-out;
-}
-@keyframes choreoPulseA {
-  0% { transform: scale(1); }
-  40% { transform: scale(1.07); }
-  100% { transform: scale(1); }
-}
-@keyframes choreoPulseB {
-  0% { transform: scale(1); }
-  40% { transform: scale(1.07); }
-  100% { transform: scale(1); }
-}
-
-/* 卡片本体：圆角+细白描边+投影 */
-.choreo-img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 0.75rem;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45);
-}
-
-/* breathe：缩放呼吸（卡片与 1 图全屏铺底共用；铺底幅度 ≤2%） */
-.choreo-breathe {
-  animation: choreoBreathe var(--breathe-period) ease-in-out infinite alternate;
-}
-@keyframes choreoBreathe {
-  from {
-    transform: scale(1);
-  }
-  to {
-    transform: scale(var(--breathe-amp));
-  }
-}
-</style>

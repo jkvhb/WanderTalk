@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto'
 import { describe, it, expect } from 'vitest'
 import { planDrivingRoute, routeCacheKey } from './useDriving'
+import { setCachedRoute } from '../utils/db'
 
 // 构造假 AMap：Driving.search 行为可定制，并统计调用次数
 function makeFakeAMap(impl) {
@@ -20,7 +21,7 @@ describe('useDriving', () => {
       { lng: 104.066512345, lat: 30.5728 },
       { lng: 103.001, lat: 29.9877 },
     )
-    expect(k).toBe('104.06651,30.57280>103.00100,29.98770')
+    expect(k).toBe('route-v2:104.06651,30.57280>103.00100,29.98770')
   })
 
   it('返回 WGS-84 路径与距离时长', async () => {
@@ -47,7 +48,11 @@ describe('useDriving', () => {
   it('第二次调用走缓存，不再请求高德', async () => {
     const { AMap, getCalls } = makeFakeAMap((o, d, cb) => {
       cb('complete', {
-        routes: [{ distance: 1000, time: 100, steps: [{ path: [{ lng: o[0], lat: o[1] }] }] }],
+        routes: [{
+          distance: 1000,
+          time: 100,
+          steps: [{ path: [{ lng: o[0], lat: o[1] }, { lng: d[0], lat: d[1] }] }],
+        }],
       })
     })
     const from = { lng: 101.11111, lat: 30.11111 }
@@ -57,11 +62,60 @@ describe('useDriving', () => {
     expect(getCalls()).toBe(1)
   })
 
+  it('forceRefresh 会绕过已有缓存重新请求高德', async () => {
+    const { AMap, getCalls } = makeFakeAMap((o, d, cb) => {
+      cb('complete', {
+        routes: [{
+          distance: 1000,
+          time: 100,
+          steps: [{ path: [{ lng: o[0], lat: o[1] }, { lng: d[0], lat: d[1] }] }],
+        }],
+      })
+    })
+    const from = { lng: 100.11111, lat: 30.11111 }
+    const to = { lng: 100.22222, lat: 30.22222 }
+
+    await planDrivingRoute(AMap, from, to)
+    await planDrivingRoute(AMap, from, to, { forceRefresh: true })
+
+    expect(getCalls()).toBe(2)
+  })
+
+  it('超过30天的路线缓存不会继续使用', async () => {
+    const from = { lng: 99.11111, lat: 29.11111 }
+    const to = { lng: 99.22222, lat: 29.22222 }
+    await setCachedRoute(routeCacheKey(from, to), {
+      path: [[99.11111, 29.11111], [99.22222, 29.22222]],
+      distance: 9,
+      duration: 9,
+      cacheVersion: 2,
+      cachedAt: Date.now() - 31 * 24 * 60 * 60 * 1000,
+    })
+    const { AMap, getCalls } = makeFakeAMap((o, d, cb) => {
+      cb('complete', {
+        routes: [{
+          distance: 1000,
+          time: 100,
+          steps: [{ path: [{ lng: o[0], lat: o[1] }, { lng: d[0], lat: d[1] }] }],
+        }],
+      })
+    })
+
+    const route = await planDrivingRoute(AMap, from, to)
+
+    expect(getCalls()).toBe(1)
+    expect(route.distance).toBe(1000)
+  })
+
   it('失败后自动重试一次', async () => {
     const { AMap, getCalls } = makeFakeAMap((o, d, cb, n) => {
       if (n === 1) cb('error', 'CUQPS_HAS_EXCEEDED_THE_LIMIT')
       else cb('complete', {
-        routes: [{ distance: 1, time: 1, steps: [{ path: [{ lng: o[0], lat: o[1] }] }] }],
+        routes: [{
+          distance: 1,
+          time: 1,
+          steps: [{ path: [{ lng: o[0], lat: o[1] }, { lng: d[0], lat: d[1] }] }],
+        }],
       })
     })
     const route = await planDrivingRoute(AMap, { lng: 102.3, lat: 30.3 }, { lng: 102.4, lat: 30.4 })

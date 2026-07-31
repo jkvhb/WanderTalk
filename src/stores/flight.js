@@ -3,7 +3,11 @@ import { ref, computed } from 'vue'
 import { useTripStore } from './trip'
 import { audioKey } from '../composables/useTts'
 import { getCachedAudio } from '../utils/db'
-import { collectNarratedStops, computeTotalDistance } from '../utils/flightStops'
+import {
+  collectNarratedStops,
+  computeTotalDistance,
+  findFlightRouteIssues,
+} from '../utils/flightStops'
 import { buildFlightTimeline, sampleAt } from '../utils/flightTimeline'
 import { formatDistance } from '../utils/format'
 import { validatePlan } from '../utils/planValidation'
@@ -37,6 +41,14 @@ export const useFlightStore = defineStore('flight', () => {
     const validationIssues = validatePlan(trip.plan)
     if (validationIssues.length) {
       error.value = `路书校验未通过：${validationIssues[0].message}`
+      return false
+    }
+    const routeIssues = findFlightRouteIssues(trip.plan)
+    if (routeIssues.length) {
+      const first = routeIssues[0]
+      error.value =
+        `视频不会使用节点直线代替驾驶路线。请先重新计算驾车路线：` +
+        `Day ${first.dayNumber} ${first.fromName} → ${first.toName}`
       return false
     }
     const stops0 = collectNarratedStops(trip.plan)
@@ -107,6 +119,7 @@ export const useFlightStore = defineStore('flight', () => {
 
   function attach(a) {
     adapter = a
+    adapter?.setPlaybackRate?.(speed.value)
     applySample()
   }
   function detach() {
@@ -138,7 +151,8 @@ export const useFlightStore = defineStore('flight', () => {
         const s = sample.value
         console.warn(
           `[FlightPerf] 长帧 ${Math.round(ts - prev)}ms @ t=${t.value.toFixed(1)}s(${Math.floor(t.value / 60)}:${String(Math.floor(t.value % 60)).padStart(2, '0')}) ` +
-            `phase=${s?.phase} stop=${s?.activeStopIndex} reveal=${s?.showcase?.revealFrac?.toFixed(2) ?? '-'} narr=${s?.showcase?.narrationFrac?.toFixed(2) ?? '-'}`,
+            `phase=${s?.phase} stop=${s?.activeStopIndex} enter=${s?.showcase?.enterFrac?.toFixed(2) ?? '-'} ` +
+            `narr=${s?.showcase?.narrationFrac?.toFixed(2) ?? '-'} exit=${s?.showcase?.exitFrac?.toFixed(2) ?? '-'}`,
         )
       }
       tick((ts - prev) / 1000)
@@ -176,6 +190,7 @@ export const useFlightStore = defineStore('flight', () => {
 
   function setSpeed(s) {
     speed.value = s
+    adapter?.setPlaybackRate?.(s)
   }
 
   return {

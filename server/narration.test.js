@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { makePlanNarrationGenerator } from './narration'
 
 describe('makePlanNarrationGenerator', () => {
@@ -21,5 +21,12 @@ describe('makePlanNarrationGenerator', () => {
   it('非 JSON 抛出可读错误', async () => {
     const gen = makePlanNarrationGenerator({ callLLM: async () => '抱歉我不会' })
     await expect(gen({ apiKey: 'sk', items: [] })).rejects.toThrow('JSON')
+  })
+
+  it('把用户选择的模型供应商透传给统一调用层', async () => {
+    const callLLM = vi.fn(async () => '{"list":[]}')
+    const gen = makePlanNarrationGenerator({ callLLM })
+    await gen({ provider: 'deepseek', apiKey: 'sk', items: [] })
+    expect(callLLM).toHaveBeenCalledWith(expect.objectContaining({ provider: 'deepseek' }))
   })
 })

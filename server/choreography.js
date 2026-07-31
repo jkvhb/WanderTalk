@@ -1,37 +1,45 @@
-// Phase 4e：展示页编排动效——DeepSeek 依旁白文本为每个节点生成动效配置 JSON。
-// 铁律：LLM 只输出受限 JSON（选词+调参+分相位），绝不输出代码/CSS；
-// 词汇表语义与前端 src/utils/choreography.js 人工保持同步（改一边记得改另一边）。
-// 依赖注入风格同 images.js / narration.js，方便 mock callLLM 做单测。
-
 function buildChoreographyMessages(nodes) {
-  const system =
-    '你是旅行视频动效导演，为"到站展示页"的图片编排动效配置。展示页有若干张图片卡片，' +
-    '它们错峰入场、缓慢漂移，并随旁白讲解的推进切换焦点图片。你的工作是依据每个节点的旁白文本，' +
-    '为它选节奏、分相位、调待机强度。可用词汇表：\n' +
-    '1) tempo：整体节奏，"calm"（舒缓叙事，慢入场慢漂移）| "medium"（默认中速）| "lively"（明快亮点，快入场明显漂移）；\n' +
-    '2) phases：相位数组，按旁白进度切换焦点图片。每项 { "at": 旁白进度比例(0~1，升序，首个必须 0), "focus": 焦点图片下标(0 起，必须小于该节点 imageCount), "accent": "none" | "pulse" }；' +
-    '依旁白文本结构分相位（开场/描述/收尾各一段较自然），感叹或亮点句所在相位可用 "pulse"（焦点卡短促强调弹跳）；\n' +
-    '3) idle：待机强度 { "drift": 0~1 漂移幅度, "breathe": 0~1 呼吸幅度 }，舒缓文本取小、活泼文本取大；\n' +
-    '4) 只输出 JSON，格式：{"results":[{"index":数字,"tempo":"...","phases":[...],"idle":{...}}]}，' +
-    '原样回填 index，不要输出任何代码、CSS 或额外说明文字。'
-  const lines = nodes.map((n) => {
-    const count = n.imageCount ?? 0
-    return `index=${n.index} | 图片数 imageCount=${count} | 旁白:${n.narration || ''}`
+  const system = [
+    '你是旅行纪录片的内容编辑。你的任务不是设计动画，而是理解旁白与图片资料之间的对应关系。',
+    '只输出受限的节点讲解语义：',
+    '1) schemaVersion 固定为 2。',
+    '2) storyMode 只能是 sequential（按顺序讲述）、parallel（并列介绍）或 hero（单一重点）。',
+    '3) imageOrder 是图片下标的排列。结合每张图片的标题、标签、简介和来源说明，按旁白实际提及顺序排列；资料不足时保持原顺序。',
+    '4) beats 是旁白进度与重点图片的对应数组，每项为 {"at":0到1,"focus":有效图片下标}，升序且首项 at 必须为 0。',
+    '5) emphasis 只能是 name、altitude、route、scenery。',
+    'imageCount 为 0 时，imageOrder 和 beats 必须为空数组。',
+    '不得输出具体坐标、预设名称、CSS、HTML、脚本、遮罩、地图缩放或动画名称。',
+    '只输出 JSON，不要解释或 Markdown。格式：',
+    '{"results":[{"index":0,"config":{"schemaVersion":2,"storyMode":"sequential","imageOrder":[0,1],"beats":[{"at":0,"focus":0}],"emphasis":"name"}}]}',
+    '原样返回每个 index。',
+  ].join('\n')
+
+  const lines = nodes.map((node) => {
+    const images = (Array.isArray(node.images) ? node.images : []).map((image) => ({
+      index: image.index,
+      title: image.title || '',
+      tags: image.tags || '',
+      description: image.description || '',
+      provider: image.provider || '',
+    }))
+    return JSON.stringify({
+      index: node.index,
+      imageCount: node.imageCount ?? 0,
+      narration: node.narration || '',
+      images,
+    })
   })
+
   return [
     { role: 'system', content: system },
-    {
-      role: 'user',
-      content: '节点列表（请为每个节点生成动效配置，并原样回填 index）：\n' + lines.join('\n'),
-    },
+    { role: 'user', content: `节点列表（每行一个 JSON）：\n${lines.join('\n')}` },
   ]
 }
 
-// callLLM({apiKey,model,messages,json}) -> string，同 narration.js 的 callDeepSeek 签名。
-// 返回原始 results 数组——数值清洗/越界处理交给前端 normalizeChoreography（客户端兜底更可靠）。
 export function makeChoreographyGenerator({ callLLM }) {
-  return async function generateChoreography({ apiKey, nodes, model }) {
+  return async function generateChoreography({ provider, apiKey, nodes, model }) {
     const content = await callLLM({
+      provider,
       apiKey,
       model,
       messages: buildChoreographyMessages(nodes),

@@ -5,6 +5,7 @@ const KEYS = {
   amapKey: '318:amapKey',
   amapSecurityCode: '318:amapSecurityCode',
   llmKey: '318:llmKey',
+  llmProvider: '318:llmProvider',
   voice: '318:voice',
   tiandituKey: '318:tiandituKey',
 }
@@ -13,11 +14,14 @@ export const useSettingsStore = defineStore('settings', () => {
   const amapKey = ref(localStorage.getItem(KEYS.amapKey) || '')
   const amapSecurityCode = ref(localStorage.getItem(KEYS.amapSecurityCode) || '')
   const llmKey = ref(localStorage.getItem(KEYS.llmKey) || '')
+  const savedProvider = localStorage.getItem(KEYS.llmProvider)
+  const llmProvider = ref(savedProvider === 'deepseek' ? 'deepseek' : 'kimi')
   const voice = ref(localStorage.getItem(KEYS.voice) || 'xiaoxiao')
   const tiandituKey = ref(localStorage.getItem(KEYS.tiandituKey) || '')
 
   const hasAmapKey = computed(() => amapKey.value.trim().length > 0)
   const hasTiandituKey = computed(() => tiandituKey.value.trim().length > 0)
+  const needsDeepSeekKey = computed(() => llmProvider.value === 'deepseek' && !llmKey.value.trim())
 
   function setAmapKey(v) {
     amapKey.value = v.trim()
@@ -34,6 +38,11 @@ export const useSettingsStore = defineStore('settings', () => {
     localStorage.setItem(KEYS.llmKey, llmKey.value)
   }
 
+  function setLlmProvider(v) {
+    llmProvider.value = v === 'deepseek' ? 'deepseek' : 'kimi'
+    localStorage.setItem(KEYS.llmProvider, llmProvider.value)
+  }
+
   function setVoice(v) {
     voice.value = v
     localStorage.setItem(KEYS.voice, v)
@@ -48,13 +57,16 @@ export const useSettingsStore = defineStore('settings', () => {
     amapKey,
     amapSecurityCode,
     llmKey,
+    llmProvider,
     voice,
     tiandituKey,
     hasAmapKey,
     hasTiandituKey,
+    needsDeepSeekKey,
     setAmapKey,
     setAmapSecurityCode,
     setLlmKey,
+    setLlmProvider,
     setVoice,
     setTiandituKey,
   }

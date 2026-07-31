@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { collectNarratedStops, computeTotalDistance } from './flightStops'
+import {
+  collectNarratedStops,
+  computeTotalDistance,
+  findFlightRouteIssues,
+} from './flightStops'
 
 // 一个两天的小路书；只给部分节点写旁白
 function makePlan() {
@@ -7,7 +11,10 @@ function makePlan() {
     days: [
       {
         dayNumber: 1,
-        segments: null,
+        segments: [
+          { path: [[0, 0], [0.5, 0.1], [1, 0]] },
+          { path: [[1, 0], [1.5, -0.1], [2, 0]] },
+        ],
         waypoints: [
           {
             name: 'A', lng: 0, lat: 0, altitude: 100, narration: '甲',
@@ -30,6 +37,54 @@ function makePlan() {
 }
 
 describe('collectNarratedStops', () => {
+  it('缺失真实驾驶路线时不编造节点直线，并指出需要重算的路段', () => {
+    const plan = {
+      days: [{
+        dayNumber: 1,
+        segments: null,
+        waypoints: [
+          { placeId: 'litang', name: '理塘', lng: 100.267931, lat: 29.996957, narration: '理塘' },
+          { placeId: 'sister-lakes', name: '姊妹湖', lng: 99.551793, lat: 30.299644, narration: '姊妹湖' },
+        ],
+      }],
+    }
+
+    expect(collectNarratedStops(plan)[1].routeToHere).toEqual([])
+    expect(findFlightRouteIssues(plan)).toEqual([
+      { dayNumber: 1, fromName: '理塘', toName: '姊妹湖', reason: 'missing' },
+    ])
+  })
+
+  it('旧数据中的路线段顺序错位时，按起终点名称找到真实折线', () => {
+    const plan = {
+      days: [{
+        dayNumber: 3,
+        waypoints: [
+          { name: '理塘', lng: 100, lat: 30, narration: '理塘' },
+          { name: '毛垭大草原', lng: 99.7, lat: 30.2, narrate: false },
+          { name: '姊妹湖', lng: 99.5, lat: 30.3, narration: '姊妹湖' },
+        ],
+        segments: [
+          {
+            fromName: '毛垭大草原',
+            toName: '姊妹湖',
+            path: [[99.7, 30.2], [99.6, 30.28], [99.5, 30.3]],
+          },
+          {
+            fromName: '理塘',
+            toName: '毛垭大草原',
+            path: [[100, 30], [99.85, 30.08], [99.7, 30.2]],
+          },
+        ],
+      }],
+    }
+
+    expect(collectNarratedStops(plan)[1].routeToHere).toEqual([
+      [100, 30], [99.85, 30.08], [99.7, 30.2], [99.6, 30.28], [99.5, 30.3],
+    ])
+    expect(findFlightRouteIssues(plan)).toEqual([])
+  })
+
   it('只收集有旁白的节点，按全局顺序', () => {
     const stops = collectNarratedStops(makePlan())
     expect(stops.map((s) => s.node.name)).toEqual(['A', 'C', 'D'])
@@ -40,10 +95,12 @@ describe('collectNarratedStops', () => {
     expect(stops[0].routeToHere).toEqual([])
   })
 
-  it('routeToHere 串联中间被跳过的节点（直线兜底）', () => {
+  it('routeToHere 串联中间被跳过节点的真实驾驶折线', () => {
     const stops = collectNarratedStops(makePlan())
     // A→C 经过 B：A-B 段 + B-C 段，去重接点
-    expect(stops[1].routeToHere).toEqual([[0, 0], [1, 0], [2, 0]])
+    expect(stops[1].routeToHere).toEqual([
+      [0, 0], [0.5, 0.1], [1, 0], [1.5, -0.1], [2, 0],
+    ])
   })
 
   it('node 带 narration/altitude/images 等字段', () => {
@@ -98,7 +155,7 @@ describe('collectNarratedStops', () => {
         },
         {
           dayNumber: 2,
-          segments: null,
+          segments: [{ path: [[100.27, 29.997], [99.7, 30.1], [99.108, 30.004]] }],
           waypoints: [
             { placeId: 'litang', name: '理塘县', lng: 100.27, lat: 29.997, narration: '理塘二' },
             { placeId: 'batang', name: '巴塘', lng: 99.108, lat: 30.004, narration: '巴塘' },
@@ -114,7 +171,7 @@ describe('collectNarratedStops', () => {
     })
     expect(stops[2].routeToHere[0]).toEqual([100.27, 29.997])
     expect(stops[2].routeToHere.at(-1)).toEqual([99.108, 30.004])
-    expect(stops[2].routeToHere).toHaveLength(2)
+    expect(stops[2].routeToHere).toHaveLength(3)
   })
 
   it('同名但相距很远且无共同 placeId 的地点不会误合并', () => {
@@ -135,7 +192,11 @@ describe('collectNarratedStops', () => {
     const plan = {
       days: [{
         dayNumber: 1,
-        segments: null,
+        segments: [
+          { path: [[0, 0], [0.5, 0.1], [1, 0]] },
+          { path: [[1, 0], [1.5, 0.1], [2, 0]] },
+          { path: [[2, 0], [2.5, 0.1], [3, 0]] },
+        ],
         waypoints: [
           { placeId: 'a', name: 'A', lng: 0, lat: 0, narration: '甲' },
           { placeId: 'route', name: '路线点', lng: 1, lat: 0, narration: '不该讲', narrate: false },
@@ -146,7 +207,10 @@ describe('collectNarratedStops', () => {
     }
     const stops = collectNarratedStops(plan)
     expect(stops.map((x) => x.node.placeId)).toEqual(['a', 'd'])
-    expect(stops[1].routeToHere).toEqual([[0, 0], [1, 0], [2, 0], [3, 0]])
+    expect(stops[1].routeToHere).toEqual([
+      [0, 0], [0.5, 0.1], [1, 0], [1.5, 0.1],
+      [2, 0], [2.5, 0.1], [3, 0],
+    ])
   })
 
   it('压缩折线中的相邻重复坐标，少于两个有效点时清空路径', () => {
@@ -206,7 +270,7 @@ describe('collectNarratedStops', () => {
     expect(collectNarratedStops(plan)[1].routeToHere).toEqual([[0, 0], [0.5, 0], [1, 0]])
   })
 
-  it('坏坐标或与端点断裂的 segment.path 回退为端点直线', () => {
+  it('坏坐标或与端点断裂的 segment.path 不再伪造端点直线', () => {
     const invalid = {
       days: [{
         dayNumber: 1,
@@ -217,11 +281,13 @@ describe('collectNarratedStops', () => {
         ],
       }],
     }
-    expect(collectNarratedStops(invalid)[1].routeToHere).toEqual([[0, 0], [1, 0]])
+    expect(collectNarratedStops(invalid)[1].routeToHere).toEqual([])
+    expect(findFlightRouteIssues(invalid)[0]?.reason).toBe('invalid')
 
     const disconnected = structuredClone(invalid)
     disconnected.days[0].segments[0].path = [[50, 50], [51, 51]]
-    expect(collectNarratedStops(disconnected)[1].routeToHere).toEqual([[0, 0], [1, 0]])
+    expect(collectNarratedStops(disconnected)[1].routeToHere).toEqual([])
+    expect(findFlightRouteIssues(disconnected)[0]?.reason).toBe('disconnected')
   })
 
   it('返回同一 placeId 的有效环线不会被当作零移动重复点吞掉', () => {

@@ -204,15 +204,16 @@ describe('studio store', () => {
       generateChoreographyConfigs.mockImplementation(async (nodes) =>
         nodes.map((n) => ({
           index: n.index,
-          tempo: 'lively',
-          phases: [{ at: 0, focus: 0, accent: 'none' }],
-          idle: { drift: 0.5, breathe: 0.5 },
+          schemaVersion: 2,
+          storyMode: n.imageCount <= 1 ? 'hero' : 'sequential',
+          imageOrder: Array.from({ length: n.imageCount }, (_, i) => i),
+          beats: n.imageCount ? [{ at: 0, focus: 0 }] : [],
+          emphasis: 'name',
         })),
       )
     })
-
-    // 只给 Day1 前两个节点配图 → 候选=有旁白且 ≥1 张图的节点，恰好 2 个
-    // （雅安无预设文案，需手动补旁白才能成为候选）
+    // Candidates are content nodes with non-empty SSML-stripped narration, including text-only nodes.
+    // 雅安无预设文案，需手动补旁白才能成为候选。
     function setupTrip() {
       const trip = useTripStore()
       trip.loadPreset318()
@@ -223,22 +224,20 @@ describe('studio store', () => {
       trip.addImage(1, 5, 'img_c')
       return trip
     }
-
-    it('只处理"有旁白且有图"的节点，normalize 后的配置与 narrationHash 写入 waypoint', async () => {
+    it('processes non-empty SSML-stripped narration, including text-only nodes', async () => {
       const trip = setupTrip()
       const studio = useStudioStore()
       await studio.runChoreographyAll('sk')
       expect(studio.choreoJob.running).toBe(false)
       expect(studio.choreoJob.finishedAt).toBeTruthy()
-      expect(studio.choreoJob.total).toBe(2)
-      expect(studio.choreoJob.done).toBe(2)
+      expect(studio.choreoJob.total).toBe(17)
+      expect(studio.choreoJob.done).toBe(17)
       expect(studio.choreoJob.skipped).toBe(0)
       const wp0 = trip.plan.days[0].waypoints[0]
-      expect(wp0.choreography.config.tempo).toBe('lively')
-      expect(wp0.choreography.config.phases[0].at).toBe(0)
+      expect(wp0.choreography.config.schemaVersion).toBe(2)
+      expect(wp0.choreography.config.storyMode).toBe('sequential')
+      expect(wp0.choreography.config.beats[0].at).toBe(0)
       expect(wp0.choreography.narrationHash).toBeTruthy()
-      // 无图节点不应有配置
-      expect(trip.plan.days[0].waypoints[2]?.choreography ?? null).toBeNull()
     })
 
     it('发给后端的旁白已剥 SSML 标签并截断', async () => {
@@ -252,6 +251,66 @@ describe('studio store', () => {
       expect(n0.narration).toContain('你好成都')
       expect(n0.narration.length).toBeLessThanOrEqual(300)
       expect(n0.imageCount).toBe(2)
+      expect(n0.images).toEqual([
+        { index: 0, title: '', tags: '', description: '', provider: '' },
+        { index: 1, title: '', tags: '', description: '', provider: '' },
+      ])
+    })
+
+    it('无图但有旁白的内容节点也会编排，并以 imageCount: 0 持久化配置', async () => {
+      const trip = useTripStore()
+      trip.replacePlan({
+        days: [{
+          dayNumber: 1,
+          title: '测试',
+          waypoints: [{ name: '文字停靠点', lng: 99, lat: 29, narration: '这里只有旁白，没有图片。', images: [] }],
+        }],
+      })
+      const setChoreography = vi.spyOn(trip, 'setChoreography')
+      const studio = useStudioStore()
+
+      await studio.runChoreographyAll('sk')
+
+      expect(generateChoreographyConfigs).toHaveBeenCalledWith([
+        { index: 0, narration: '这里只有旁白，没有图片。', imageCount: 0, images: [] },
+      ], { apiKey: 'sk' })
+      expect(setChoreography).toHaveBeenCalledTimes(1)
+      expect(trip.plan.days[0].waypoints[0].choreography.config).toMatchObject({
+        schemaVersion: 2, storyMode: 'hero', imageOrder: [], beats: [],
+      })
+    })
+
+    it('preserves normalized config from indexed result envelopes', async () => {
+      const trip = useTripStore()
+      trip.replacePlan({
+        days: [{
+          dayNumber: 1,
+          title: '测试',
+          waypoints: [{ name: '站点', lng: 99, lat: 29, narration: '两张图的旁白', images: ['img_a', 'img_b'] }],
+        }],
+      })
+      generateChoreographyConfigs.mockImplementation(async (nodes) => nodes.map((n) => ({
+        index: n.index,
+        config: {
+          schemaVersion: 2,
+          storyMode: 'parallel',
+          imageOrder: [1, 0],
+          beats: [{ at: 0, focus: 1 }, { at: 0.5, focus: 0 }],
+          emphasis: 'scenery',
+        },
+      })))
+      const studio = useStudioStore()
+
+      await studio.runChoreographyAll('sk')
+
+      const config = trip.plan.days[0].waypoints[0].choreography.config
+      expect(config).toEqual({
+        schemaVersion: 2,
+        storyMode: 'parallel',
+        imageOrder: [1, 0],
+        beats: [{ at: 0, focus: 1 }, { at: 0.5, focus: 0 }],
+        emphasis: 'scenery',
+      })
     })
 
     it('幂等：旁白未改的节点重跑全部跳过，不再调 LLM', async () => {
@@ -262,8 +321,8 @@ describe('studio store', () => {
 
       await studio.runChoreographyAll('sk')
       expect(generateChoreographyConfigs).not.toHaveBeenCalled()
-      expect(studio.choreoJob.total).toBe(2)
-      expect(studio.choreoJob.skipped).toBe(2)
+      expect(studio.choreoJob.total).toBe(17)
+      expect(studio.choreoJob.skipped).toBe(17)
       expect(studio.choreoJob.done).toBe(0)
       expect(studio.choreoJob.finishedAt).toBeTruthy()
     })
@@ -277,15 +336,22 @@ describe('studio store', () => {
       trip.setNarration(1, 0, '完全不同的新旁白文本')
       generateChoreographyConfigs.mockClear()
       generateChoreographyConfigs.mockImplementation(async (nodes) =>
-        nodes.map((n) => ({ index: n.index, tempo: 'calm', phases: [{ at: 0, focus: 0 }], idle: {} })),
+        nodes.map((n) => ({
+          index: n.index,
+          schemaVersion: 2,
+          storyMode: 'hero',
+          imageOrder: n.imageCount ? [0] : [],
+          beats: n.imageCount ? [{ at: 0, focus: 0 }] : [],
+          emphasis: 'name',
+        })),
       )
       await studio.runChoreographyAll('sk')
       expect(generateChoreographyConfigs).toHaveBeenCalledTimes(1)
       expect(generateChoreographyConfigs.mock.calls[0][0]).toHaveLength(1)
       expect(studio.choreoJob.done).toBe(1)
-      expect(studio.choreoJob.skipped).toBe(1)
+      expect(studio.choreoJob.skipped).toBe(16)
       const wp0 = trip.plan.days[0].waypoints[0]
-      expect(wp0.choreography.config.tempo).toBe('calm')
+      expect(wp0.choreography.config.storyMode).toBe('hero')
       expect(wp0.choreography.narrationHash).not.toBe(oldHash)
     })
 
@@ -294,10 +360,11 @@ describe('studio store', () => {
       generateChoreographyConfigs.mockImplementation(async () => []) // 全漏
       const studio = useStudioStore()
       await studio.runChoreographyAll('sk')
-      expect(studio.choreoJob.done).toBe(2)
+      expect(studio.choreoJob.done).toBe(17)
       const wp0 = trip.plan.days[0].waypoints[0]
-      expect(wp0.choreography.config.tempo).toBe('medium') // defaultChoreography
-      expect(wp0.choreography.config.phases.length).toBeGreaterThan(0)
+      expect(wp0.choreography.config.schemaVersion).toBe(2)
+      expect(wp0.choreography.config.storyMode).toBe('sequential')
+      expect(wp0.choreography.config.beats.length).toBeGreaterThan(0)
     })
 
     it('生成报错时进入 error 状态，不抛出', async () => {
@@ -308,11 +375,9 @@ describe('studio store', () => {
       expect(studio.choreoJob.error).toMatch(/生成编排配置失败/)
       expect(studio.choreoJob.running).toBe(false)
     })
-
-    it('无候选节点（没图）时不调 LLM，任务直接完成', async () => {
+    it('does not call the LLM when no content node has eligible narration', async () => {
       const trip = useTripStore()
       trip.loadPreset318()
-      trip.loadPresetNarration() // 有旁白但全部无图
       const studio = useStudioStore()
       await studio.runChoreographyAll('sk')
       expect(generateChoreographyConfigs).not.toHaveBeenCalled()

@@ -9,20 +9,24 @@ describe('makeChoreographyGenerator（DeepSeek 批量生成编排配置）', () 
           results: [
             {
               index: 0,
-              tempo: 'lively',
-              phases: [
-                { at: 0, focus: 0, accent: 'none' },
-                { at: 0.5, focus: 1, accent: 'pulse' },
-              ],
-              idle: { drift: 0.6, breathe: 0.4 },
+              config: {
+                schemaVersion: 2,
+                storyMode: 'sequential',
+                imageOrder: [1, 0],
+                beats: [{ at: 0, focus: 1 }, { at: 0.5, focus: 0 }],
+                emphasis: 'scenery',
+              },
             },
           ],
         }),
     })
     const out = await gen({ apiKey: 'sk', nodes: [{ index: 0, narration: '雪山草甸', imageCount: 2 }] })
     expect(out).toHaveLength(1)
-    expect(out[0]).toMatchObject({ index: 0, tempo: 'lively' })
-    expect(out[0].phases[1]).toMatchObject({ at: 0.5, focus: 1, accent: 'pulse' })
+    expect(out[0]).toMatchObject({
+      index: 0,
+      config: { schemaVersion: 2, storyMode: 'sequential', imageOrder: [1, 0], emphasis: 'scenery' },
+    })
+    expect(out[0].config.beats[1]).toEqual({ at: 0.5, focus: 0 })
   })
 
   it('兼容直接返回数组', async () => {
@@ -41,7 +45,7 @@ describe('makeChoreographyGenerator（DeepSeek 批量生成编排配置）', () 
     )
   })
 
-  it('提示词包含节点旁白与图片数，且要求 JSON 输出', async () => {
+  it('提示词只允许故事语义，不允许布局和 CSS', async () => {
     const callLLM = vi.fn(async () => '{"results":[]}')
     const gen = makeChoreographyGenerator({ callLLM })
     await gen({
@@ -53,13 +57,42 @@ describe('makeChoreographyGenerator（DeepSeek 批量生成编排配置）', () 
     expect(arg.json).toBe(true)
     const userMsg = arg.messages.find((m) => m.role === 'user')?.content || ''
     expect(userMsg).toContain('折多山')
-    expect(userMsg).toContain('index=3')
+    expect(userMsg).toContain('"index":3')
     expect(userMsg).toContain('3')
     const sysMsg = arg.messages.find((m) => m.role === 'system')?.content || ''
-    // 系统提示词内嵌词汇表语义：tempo 三档 + phases + idle
-    expect(sysMsg).toContain('calm')
-    expect(sysMsg).toContain('lively')
-    expect(sysMsg).toContain('phases')
-    expect(sysMsg).toContain('idle')
+    expect(sysMsg).toContain('storyMode')
+    expect(sysMsg).toContain('imageOrder')
+    expect(sysMsg).toContain('beats')
+    expect(sysMsg).toContain('emphasis')
+    expect(sysMsg).toContain('不得输出具体坐标、预设名称、CSS')
+    expect(sysMsg).not.toContain('route-bloom')
+    expect(sysMsg).not.toContain('chapter-slide')
+  })
+  it('prompts text-only nodes to return empty imageOrder and beats', async () => {
+    const callLLM = vi.fn(async () => JSON.stringify({ results: [{ index: 8, config: { imageOrder: [], beats: [] } }] }))
+    const gen = makeChoreographyGenerator({ callLLM })
+
+    const out = await gen({ apiKey: 'sk', nodes: [{ index: 8, narration: 'A text-only stop', imageCount: 0 }] })
+
+    expect(out[0].config.imageOrder).toEqual([])
+    expect(out[0].config.beats).toEqual([])
+    expect(callLLM.mock.calls[0][0].json).toBe(true)
+    const sysMsg = callLLM.mock.calls[0][0].messages.find((message) => message.role === 'system')?.content || ''
+    expect(sysMsg).toContain('imageCount 为 0 时，imageOrder 和 beats 必须为空数组')
+  })
+
+  it('rejects markdown-fenced JSON and JSON followed by explanation', async () => {
+    const callLLM = vi
+      .fn()
+      .mockResolvedValueOnce('```json\n{"results":[]}\n```')
+      .mockResolvedValueOnce('{"results":[]}\nThis is the generated choreography.')
+    const gen = makeChoreographyGenerator({ callLLM })
+    const request = { apiKey: 'sk', nodes: [{ index: 0, narration: 'x', imageCount: 1 }] }
+
+    await expect(gen(request)).rejects.toThrow('JSON')
+    await expect(gen(request)).rejects.toThrow('JSON')
+    expect(callLLM.mock.calls).toHaveLength(2)
+    expect(callLLM.mock.calls[0][0].json).toBe(true)
+    expect(callLLM.mock.calls[1][0].json).toBe(true)
   })
 })

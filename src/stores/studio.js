@@ -7,9 +7,9 @@ import { generateImageQueries, searchPixabayImages, searchCommonsImages, fetchPi
 import { generateChoreographyConfigs } from '../composables/useChoreography'
 import { pickImages } from '../utils/imageMatch'
 import { downscaleImage, newImageId } from '../utils/image'
-import { putImage } from '../utils/db'
+import { getImage, putImage } from '../utils/db'
 import { hashKey } from '../utils/hash'
-import { normalizeChoreography } from '../utils/choreography'
+import { normalizeShowcaseStory } from '../utils/showcaseStory'
 import { isContentNode } from '../utils/contentNode'
 
 // 任务进度状态挂在 store（而非组件），切换视图时任务不中断、进度可续显。
@@ -115,7 +115,7 @@ export const useStudioStore = defineStore('studio', () => {
 
   // AI 自动配图：只填无图节点，每点最多 3 张（Pixabay，需下载入库、禁止热链）。
   // 幂等——重跑仍只处理"仍无图"的节点；单节点全部检索词落空则跳过（保持文字版）。
-  async function runImageAutoFillAll(apiKey) {
+  async function runImageAutoFillAll(apiKey, { provider } = {}) {
     const trip = useTripStore()
     if (!trip.plan || imageJob.value.running) return
     const nodes = nodesNeedingImages(trip.plan)
@@ -123,7 +123,10 @@ export const useStudioStore = defineStore('studio', () => {
     try {
       if (nodes.length) {
         // 一次批量拿全部节点的检索词/互证关键词
-        const queryResults = await generateImageQueries(nodes, { apiKey })
+        const queryResults = await generateImageQueries(nodes, {
+          apiKey,
+          ...(provider ? { provider } : {}),
+        })
         for (let i = 0; i < nodes.length; i++) {
           const node = nodes[i]
           imageJob.value.current = node.name
@@ -159,7 +162,15 @@ export const useStudioStore = defineStore('studio', () => {
               mime,
               w,
               h,
-              source: { provider: hit.provider || 'pixabay', id: hit.id, pageURL: hit.pageURL, attribution: hit.attribution || null },
+              source: {
+                provider: hit.provider || 'pixabay',
+                id: hit.id,
+                pageURL: hit.pageURL,
+                attribution: hit.attribution || null,
+                title: hit.title || '',
+                tags: hit.tags || '',
+                description: hit.description || '',
+              },
             })
             trip.addImage(node.dayNumber, node.index, id)
           }
@@ -174,20 +185,22 @@ export const useStudioStore = defineStore('studio', () => {
     }
   }
 
-  // 候选=有旁白且 ≥1 张图的节点（1 张也配：全屏微呼吸分支）；带当前旁白哈希供幂等比对
+  // Candidates are content nodes with non-empty SSML-stripped narration; text-only nodes are supported and narration hashes remain idempotent.
   function nodesForChoreography(plan) {
     const out = []
     for (const day of plan.days) {
       day.waypoints.forEach((w, i) => {
         if (!isContentNode(w)) return
         const plain = stripSsml(w.narration)
-        if (!plain || !w.images?.length) return
+        if (!plain) return
+        const imageIds = Array.isArray(w.images) ? [...w.images] : []
         out.push({
           dayNumber: day.dayNumber,
           index: i,
           plain,
-          imageCount: w.images.length,
-          currentHash: hashKey(plain),
+          imageCount: imageIds.length,
+          imageIds,
+          currentHash: hashKey(`${plain}\n${imageIds.join('|')}`),
           storedHash: w.choreography?.narrationHash || '',
         })
       })
@@ -197,7 +210,7 @@ export const useStudioStore = defineStore('studio', () => {
 
   // AI 编排动效：DeepSeek 一次批量为候选节点生成配置 → normalize → 存节点。
   // 按 narrationHash 幂等——旁白没改的节点跳过；LLM 漏回的节点 normalize 兜底默认配置。
-  async function runChoreographyAll(apiKey, { force = false } = {}) {
+  async function runChoreographyAll(apiKey, { force = false, provider } = {}) {
     const trip = useTripStore()
     if (!trip.plan || choreoJob.value.running) return
     const candidates = nodesForChoreography(trip.plan)
@@ -210,15 +223,29 @@ export const useStudioStore = defineStore('studio', () => {
     }
     try {
       if (toProcess.length) {
-        const payload = toProcess.map((n, k) => ({
+        const payload = await Promise.all(toProcess.map(async (n, k) => ({
           index: k,
           narration: n.plain.slice(0, CHOREO_NARRATION_MAX),
           imageCount: n.imageCount,
-        }))
-        const results = await generateChoreographyConfigs(payload, { apiKey })
+          images: await Promise.all(n.imageIds.map(async (id, index) => {
+            const entry = await getImage(id)
+            const source = entry?.source || {}
+            return {
+              index,
+              title: source.title || '',
+              tags: source.tags || '',
+              description: source.description || '',
+              provider: source.provider || '',
+            }
+          })),
+        })))
+        const results = await generateChoreographyConfigs(payload, {
+          apiKey,
+          ...(provider ? { provider } : {}),
+        })
         toProcess.forEach((n, k) => {
           const raw = results?.find((r) => r.index === k) ?? results?.[k]
-          const config = normalizeChoreography(raw, n.imageCount)
+          const config = normalizeShowcaseStory(raw?.config ?? raw, n.imageCount)
           trip.setChoreography(n.dayNumber, n.index, { config, narrationHash: n.currentHash })
           choreoJob.value.done++
         })
@@ -251,7 +278,7 @@ export const useStudioStore = defineStore('studio', () => {
   }
 
   // AI 生成草稿；regenerateAll=false 只补空白，true 重生成全部（旧稿存入 prevNarration）
-  async function runAiDraftAll(apiKey, { regenerateAll = false } = {}) {
+  async function runAiDraftAll(apiKey, { regenerateAll = false, provider } = {}) {
     const trip = useTripStore()
     if (!trip.plan || aiJob.value.running) return
     const nodes = nodesForAi(trip.plan, regenerateAll)
@@ -259,7 +286,10 @@ export const useStudioStore = defineStore('studio', () => {
     try {
       if (nodes.length) {
         // nodes 已含 dayNumber/index/nodeName/address/altitude/overnight，整程一次性发后端
-        const results = await generateNarrationDraft(nodes, { apiKey })
+        const results = await generateNarrationDraft(nodes, {
+          apiKey,
+          ...(provider ? { provider } : {}),
+        })
         for (const r of results) {
           const day = trip.plan.days.find((d) => d.dayNumber === r.dayNumber)
           if (!day) continue

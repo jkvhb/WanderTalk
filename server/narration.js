@@ -1,24 +1,10 @@
 import { buildPlanNarrationMessages } from './narrationPrompt.js'
 
-const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
-
-export async function callDeepSeek({ apiKey, model = 'deepseek-chat', messages, json = false }) {
-  const body = { model, messages, temperature: 0.7 }
-  if (json) body.response_format = { type: 'json_object' }
-  const res = await fetch(DEEPSEEK_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify(body),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.error?.message || `DeepSeek 请求失败（${res.status}）`)
-  return data.choices?.[0]?.message?.content ?? ''
-}
-
 // 整条路线一次 LLM 调用，要求 JSON 输出，按 dayNumber+index 回填
 export function makePlanNarrationGenerator({ callLLM }) {
-  return async function generateNarration({ apiKey, items, model }) {
+  return async function generateNarration({ provider, apiKey, items, model }) {
     const content = await callLLM({
+      provider,
       apiKey,
       model,
       messages: buildPlanNarrationMessages(items),

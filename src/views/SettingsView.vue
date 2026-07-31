@@ -6,6 +6,7 @@ const settings = useSettingsStore()
 const amapInput = ref(settings.amapKey)
 const amapSecurityInput = ref(settings.amapSecurityCode)
 const llmInput = ref(settings.llmKey)
+const llmProviderInput = ref(settings.llmProvider)
 const tiandituInput = ref(settings.tiandituKey)
 const saved = ref(false)
 
@@ -13,6 +14,7 @@ function save() {
   settings.setAmapKey(amapInput.value)
   settings.setAmapSecurityCode(amapSecurityInput.value)
   settings.setLlmKey(llmInput.value)
+  settings.setLlmProvider(llmProviderInput.value)
   settings.setTiandituKey(tiandituInput.value)
   saved.value = true
   setTimeout(() => (saved.value = false), 2000)
@@ -50,8 +52,22 @@ function save() {
         </p>
       </div>
 
+      <div class="space-y-2">
+        <label class="block text-sm font-medium">默认 AI 模型</label>
+        <select
+          v-model="llmProviderInput"
+          class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:border-accent focus:outline-none text-sm bg-white"
+        >
+          <option value="kimi">Kimi K2.6（默认）</option>
+          <option value="deepseek">DeepSeek（备用）</option>
+        </select>
+        <p v-if="llmProviderInput === 'kimi'" class="text-xs text-gray-500">
+          Kimi Key 由本地服务端安全读取，不保存在浏览器中。
+        </p>
+      </div>
+
       <div>
-        <label class="block text-sm font-medium mb-1">DeepSeek API Key（AI 旁白生成，可选）</label>
+        <label class="block text-sm font-medium mb-1">DeepSeek API Key（手动备用）</label>
         <input
           v-model="llmInput"
           type="password"
@@ -85,7 +101,7 @@ function save() {
     </section>
 
     <p class="text-xs text-gray-400">
-      🔒 所有 Key 仅保存在浏览器本地（localStorage），不会上传到任何服务器。
+      🔒 Kimi Key 仅保存在本地服务端环境文件；其余 Key 保存在当前浏览器本地。
     </p>
   </div>
 </template>

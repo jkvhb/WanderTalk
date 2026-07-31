@@ -15,6 +15,21 @@ import { useTripStore } from './trip'
 import { audioKey } from '../composables/useTts'
 import { buildFlightTimeline } from '../utils/flightTimeline'
 
+function addTestRoutes(plan) {
+  for (const day of plan.days) {
+    day.segments = day.waypoints.slice(0, -1).map((waypoint, index) => ({
+      fromName: waypoint.name,
+      toName: day.waypoints[index + 1].name,
+      path: [
+        [waypoint.lng, waypoint.lat],
+        [day.waypoints[index + 1].lng, day.waypoints[index + 1].lat],
+      ],
+      distance: 1000,
+      duration: 60,
+    }))
+  }
+}
+
 describe('flight store buildFromPlan', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -25,6 +40,7 @@ describe('flight store buildFromPlan', () => {
     const trip = useTripStore()
     trip.loadPreset318()
     trip.loadPresetNarration()
+    addTestRoutes(trip.plan)
     const flight = useFlightStore()
     const ok = await flight.buildFromPlan()
     expect(ok).toBe(true)
@@ -45,10 +61,24 @@ describe('flight store buildFromPlan', () => {
     expect(flight.error).toBeTruthy()
   })
 
+  it('驾驶路线尚未计算时拒绝用直线预览，并提示需要重算的路段', async () => {
+    const trip = useTripStore()
+    trip.loadPreset318()
+    trip.loadPresetNarration()
+    const flight = useFlightStore()
+
+    const ok = await flight.buildFromPlan()
+
+    expect(ok).toBe(false)
+    expect(flight.error).toContain('请先重新计算驾车路线')
+    expect(flight.error).toContain('成都')
+  })
+
   it('跨天起终点不连续的旧路书不能进入预览', async () => {
     const trip = useTripStore()
     trip.loadPreset318()
     trip.loadPresetNarration()
+    addTestRoutes(trip.plan)
     trip.plan.days[1].waypoints.shift()
     const flight = useFlightStore()
     const ok = await flight.buildFromPlan()
@@ -61,6 +91,7 @@ describe('flight store buildFromPlan', () => {
     const trip = useTripStore()
     trip.loadPreset318()
     trip.loadPresetNarration()
+    addTestRoutes(trip.plan)
     const firstWp = trip.plan.days[0].waypoints[0]
     const missingKey = audioKey(firstWp.narration, trip.plan.voice, trip.plan.rate)
     getCachedAudio.mockImplementation(async (k) =>
@@ -90,7 +121,12 @@ describe('flight store 播放', () => {
 
   function setup() {
     const flight = useFlightStore()
-    const adapter = { setCamera: vi.fn(), playAudio: vi.fn(), stopAudio: vi.fn() }
+    const adapter = {
+      setCamera: vi.fn(),
+      playAudio: vi.fn(),
+      stopAudio: vi.fn(),
+      setPlaybackRate: vi.fn(),
+    }
     const blob0 = new Blob(['0'])
     const blob1 = new Blob(['1'])
     flight.attach(adapter)
@@ -128,8 +164,9 @@ describe('flight store 播放', () => {
   })
 
   it('setSpeed 影响推进步长', () => {
-    const { flight } = setup()
+    const { flight, adapter } = setup()
     flight.setSpeed(2)
+    expect(adapter.setPlaybackRate).toHaveBeenCalledWith(2)
     flight.play()
     flight.tick(1) // 实际推进 2 秒
     expect(flight.t).toBeCloseTo(2, 6)
@@ -145,7 +182,7 @@ describe('flight store 播放', () => {
     expect(flight.t).toBe(frozen)
   })
 
-  it('透传 setCar/setProgress：fly 有车、dwell 车为 null 且进度走满', () => {
+  it('透传 setCar/setProgress：fly 有车、dwell 小车停在节点且进度走满', () => {
     const flight = useFlightStore()
     const adapter = {
       setCamera: vi.fn(), playAudio: vi.fn(), stopAudio: vi.fn(),
@@ -159,7 +196,7 @@ describe('flight store 播放', () => {
     )
     expect(adapter.setProgress).toHaveBeenLastCalledWith(expect.objectContaining({ legIndex: 1 }))
     flight.seek(4) // dwell A
-    expect(adapter.setCar).toHaveBeenLastCalledWith(null)
+    expect(adapter.setCar).toHaveBeenLastCalledWith({ lng: 0, lat: 0, headingDeg: 90, frac: 1 })
     expect(adapter.setProgress).toHaveBeenLastCalledWith({ legIndex: 0, frac: 1 })
   })
 

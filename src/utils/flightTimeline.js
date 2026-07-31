@@ -1,4 +1,4 @@
-import { easeInOutCubic, clamp01, edgeWindow } from './easing'
+import { easeInOutCubic, clamp01 } from './easing'
 import { pointAlongPath, bearingAt, boundsOfPath, cumulativeLengths } from './geo'
 
 const DEFAULTS = {
@@ -6,7 +6,10 @@ const DEFAULTS = {
   flyDuration: 2.5, // 兜底：路径长度为 0 时的旅行段时长
   outroDuration: 4,
   dwellPadding: 0.8,
-  wipeDuration: 0.7, // 圆形揭幕单程时长（dwell 两端各一次）
+  showcaseEnterDuration: 2.8, // 到站镜头居中与节点信息进入；旁白等它完成后开始
+  showcaseExitDuration: 0.5, // 讲解层淡出时长
+  showcaseZoom: 10.2, // 区域级视野，禁止街道级下钻
+  showcaseCameraEaseMs: 2800,
   overviewPitch: 25, // 总览俯仰角（用户拍板"接近俯视"，常量可调）
   boundsPadFrac: 0.15, // fitBounds 外扩比例（相对容器短边），给 pitch 形变留余量
   camEaseMaxMs: 3000, // 段间镜头滑动时长上限（用户手测定 3s）
@@ -26,6 +29,11 @@ export function flyDurationForKm(dKm, fallback = 2.5) {
 // 返回 { totalDuration, scenes, stops, wholeBounds, intro, outro, opts }
 export function buildFlightTimeline(stops, opts = {}) {
   const o = { ...DEFAULTS, ...opts }
+  // 旧调用仍可能只传 wipeDuration；只把它当作时长兼容，不恢复任何揭幕语义。
+  if (opts.wipeDuration != null) {
+    if (opts.showcaseEnterDuration == null) o.showcaseEnterDuration = opts.wipeDuration
+    if (opts.showcaseExitDuration == null) o.showcaseExitDuration = opts.wipeDuration
+  }
   o.intro = { ...DEFAULTS.intro, ...(opts.intro || {}) }
   o.outro = { ...DEFAULTS.outro, ...(opts.outro || {}) }
 
@@ -46,9 +54,11 @@ export function buildFlightTimeline(stops, opts = {}) {
   push('intro', o.introDuration, -1)
   stops.forEach((s, i) => {
     let legBounds = null
+    let arrivalHeadingDeg = 90
     if (s.routeToHere && s.routeToHere.length >= 2) {
       const cum = cumulativeLengths(s.routeToHere)
       const meters = cum[cum.length - 1]
+      arrivalHeadingDeg = bearingAt(s.routeToHere, 1, 500, cum)
       const prev = stops[i - 1]?.node
       // 段包围盒 = 路线 ∪ 两端节点（POI 可能离路几十米，纳入保证可见）
       legBounds = boundsOfPath(s.routeToHere, [
@@ -57,11 +67,10 @@ export function buildFlightTimeline(stops, opts = {}) {
       ])
       push('fly', flyDurationForKm(meters / 1000, o.flyDuration), i, { path: s.routeToHere, legBounds, cum })
     }
-    // dwell = 揭幕开 + 语音 + 停顿 + 揭幕收；相机整段保持进场画面，
-    // 段间平移过渡由下一场景的 easeTo 完成（2026-07-05 手测修订：暗切太突兀，要看得见滑动）
-    push('dwell', o.wipeDuration + (s.audioDuration || 0) + o.dwellPadding + o.wipeDuration, i, {
+    // dwell = 镜头居中/信息进入 + 语音 + 停顿 + 信息退出；地图全程可见。
+    push('dwell', o.showcaseEnterDuration + (s.audioDuration || 0) + o.dwellPadding + o.showcaseExitDuration, i, {
       audioDuration: s.audioDuration || 0,
-      camBefore: legBounds ? { sceneId: `leg-${i}`, bounds: legBounds } : { sceneId: 'all', bounds: wholeBounds },
+      arrivalHeadingDeg,
     })
   })
   push('outro', o.outroDuration, -1)
@@ -154,25 +163,38 @@ export function sampleAt(timeline, t) {
     }
   }
 
-  // dwell：揭幕(开) → 讲解 → 揭幕(收)；相机整段不动（收圆露出的仍是进场画面），
-  // 滑向下一段总览的可见平移由下一场景 sceneId 变化触发 adapter 的 easeTo
-  const wipe = o.wipeDuration
-  const revealFrac = edgeWindow(p, scene.duration > 0 ? wipe / scene.duration : 0)
-  const audioStart = scene.start + wipe // 语音窗口后移：盖住后才开讲
-  const playing = scene.audioDuration > 0 && tc >= audioStart && tc < audioStart + scene.audioDuration
+  // dwell：镜头居中/信息进入 → 讲解 → 信息退出。没有遮罩，地图始终在底层可见。
+  const enterDuration = o.showcaseEnterDuration
+  const exitDuration = o.showcaseExitDuration
+  const enterFrac = enterDuration > 0 ? clamp01((tc - scene.start) / enterDuration) : 1
+  const exitStart = scene.end - exitDuration
+  const exitFrac = exitDuration > 0 ? clamp01((tc - exitStart) / exitDuration) : 1
+  const audioStart = scene.start + enterDuration
+  // 不在“记录时长”到点时立刻掐断播放器：Blob 解码/启动有少量延迟，
+  // 允许它利用既有 dwellPadding 自然播完，退出动画开始时再收尾。
+  const playing = scene.audioDuration > 0 && tc >= audioStart && tc < exitStart
+  const audioOffset = Math.min(scene.audioDuration, Math.max(0, tc - audioStart))
   const imgCount = node.images?.length ?? 0
-  const imageIndex = imgCount > 0 ? Math.min(imgCount - 1, Math.floor(p * imgCount)) : 0
-  // 旁白进度比例（4e 编排相位驱动）：窗口前 0 → 窗口中线性 → 窗口后 1；无语音恒 0
   const narrationFrac =
     scene.audioDuration > 0 ? clamp01((tc - audioStart) / scene.audioDuration) : 0
+  const imageIndex = imgCount > 0 ? Math.min(imgCount - 1, Math.floor(narrationFrac * imgCount)) : 0
   return {
     phase: 'dwell', t: tc,
-    camera: boundsCamera(scene.camBefore, o),
-    car: null,
+    camera: {
+      kind: 'point',
+      sceneId: `stop-${i}`,
+      lng: node.lng,
+      lat: node.lat,
+      zoom: o.showcaseZoom,
+      pitch: o.overviewPitch,
+      bearing: 0,
+      easeMs: o.showcaseCameraEaseMs,
+    },
+    car: { lng: node.lng, lat: node.lat, headingDeg: scene.arrivalHeadingDeg, frac: 1 },
     progress: { legIndex: i, frac: 1 },
-    showcase: { stopIndex: i, imageIndex, revealFrac, narrationFrac },
+    showcase: { stopIndex: i, imageIndex, enterFrac, narrationFrac, exitFrac },
     activeStopIndex: i,
-    audio: playing ? { stopIndex: i, playing: true, offset: tc - audioStart } : { ...NO_AUDIO },
+    audio: playing ? { stopIndex: i, playing: true, offset: audioOffset } : { ...NO_AUDIO },
     altitude: node.altitude ?? null,
     overlay: null,
   }

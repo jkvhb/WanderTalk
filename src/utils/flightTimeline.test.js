@@ -7,7 +7,10 @@ const OPTS = {
   flyDuration: 2.5,
   outroDuration: 4,
   dwellPadding: 1,
-  wipeDuration: 0.5,
+  showcaseEnterDuration: 0.5,
+  showcaseExitDuration: 0.5,
+  showcaseCameraEaseMs: 500,
+  showcaseZoom: 10.2,
   overviewPitch: 25,
   boundsPadFrac: 0.15,
   intro: { title: 'T', subtitle: 'S' },
@@ -38,7 +41,7 @@ describe('flyDurationForKm', () => {
 })
 
 describe('buildFlightTimeline', () => {
-  it('场景序列与总时长（dwell 含两端揭幕）', () => {
+  it('场景序列与总时长（dwell 含进入和退出）', () => {
     const tl = buildFlightTimeline(twoStops(), OPTS)
     expect(tl.scenes.map((s) => s.kind)).toEqual(['intro', 'dwell', 'fly', 'dwell', 'outro'])
     const flyDur = flyDurationForKm(pathLength([[0, 0], [1, 0]]) / 1000)
@@ -55,27 +58,26 @@ describe('buildFlightTimeline', () => {
     expect(tl.scenes.at(-1).end).toBeCloseTo(tl.totalDuration, 6)
   })
 
-  it('保留 stops/intro/outro/opts；缺省 wipe/pitch 生效', () => {
+  it('保留 stops/intro/outro/opts；缺省节点展示参数生效', () => {
     const tl = buildFlightTimeline(twoStops(), OPTS)
     expect(tl.stops).toHaveLength(2)
     expect(tl.intro.title).toBe('T')
     expect(tl.outro.lines).toEqual(['L1'])
     expect(tl.opts.overviewPitch).toBe(25)
     const dft = buildFlightTimeline(twoStops(), { intro: { title: 'x' }, outro: { lines: [] } })
-    expect(dft.opts.wipeDuration).toBeCloseTo(0.7, 6)
+    expect(dft.opts.showcaseEnterDuration).toBeCloseTo(2.8, 6)
+    expect(dft.opts.showcaseExitDuration).toBeCloseTo(0.5, 6)
+    expect(dft.opts.showcaseCameraEaseMs).toBe(2800)
+    expect(dft.opts.showcaseZoom).toBe(10.2)
     expect(dft.opts.overviewPitch).toBe(25)
     expect(dft.opts.boundsPadFrac).toBeCloseTo(0.15, 6)
   })
 
-  it('包围盒预计算：wholeBounds/legBounds/dwell 换场相机', () => {
+  it('包围盒预计算：wholeBounds/legBounds', () => {
     const tl = buildFlightTimeline(twoStops(), OPTS)
     expect(tl.wholeBounds).toEqual([[0, 0], [1, 0]])
     const fly = tl.scenes.find((s) => s.kind === 'fly')
     expect(fly.legBounds).toEqual([[0, 0], [1, 0]])
-    const [dwellA, dwellB] = tl.scenes.filter((s) => s.kind === 'dwell')
-    expect(dwellA.camBefore.sceneId).toBe('all') // 首节点无来路 → 与 intro 连续
-    expect(dwellA.camBefore.bounds).toEqual([[0, 0], [1, 0]])
-    expect(dwellB.camBefore.sceneId).toBe('leg-1')
   })
 
   it('fly 场景带累计弧长表（末值=路径总长）', () => {
@@ -120,27 +122,41 @@ describe('sampleAt · 契约 v2', () => {
     expect(s.camera.easeMs).toBe(Math.min(3000, Math.round(flyDur * 700)))
   })
 
-  it('dwell 揭幕曲线：两端 0→1→0，盖住期间恒 1', () => {
+  it('dwell 输出独立进入与退出进度，不再输出圆形揭幕进度', () => {
     const dA = 3
-    expect(sampleAt(tl, dA + 0.0001).showcase.revealFrac).toBeCloseTo(0, 2)
-    expect(sampleAt(tl, dA + 0.25).showcase.revealFrac).toBeCloseTo(0.5, 6) // 半程=easeInOutCubic(0.5)
-    expect(sampleAt(tl, dA + 0.5).showcase.revealFrac).toBe(1)
-    expect(sampleAt(tl, dA + 2).showcase.revealFrac).toBe(1)
-    expect(sampleAt(tl, dA + 3.75).showcase.revealFrac).toBeCloseTo(0.5, 6)
+    expect(sampleAt(tl, dA + 0.0001).showcase.enterFrac).toBeCloseTo(0, 2)
+    expect(sampleAt(tl, dA + 0.25).showcase.enterFrac).toBeCloseTo(0.5, 6)
+    expect(sampleAt(tl, dA + 0.5).showcase.enterFrac).toBe(1)
+    expect(sampleAt(tl, dA + 2).showcase.exitFrac).toBe(0)
+    expect(sampleAt(tl, dA + 3.75).showcase.exitFrac).toBeCloseTo(0.5, 6)
+    expect(sampleAt(tl, dA + 3.999).showcase.exitFrac).toBeCloseTo(1, 2)
+    expect(sampleAt(tl, dA + 1).showcase).not.toHaveProperty('revealFrac')
   })
 
-  it('dwell 相机整段保持进场画面（平移过渡交给下段场景的 easeTo，2026-07-05 手测修订）', () => {
-    expect(sampleAt(tl, 3.2).camera.sceneId).toBe('all') // 首节点与 intro 连续
-    expect(sampleAt(tl, 3.6).camera.sceneId).toBe('all')
-    expect(sampleAt(tl, 6.8).camera.sceneId).toBe('all') // 收圆期间也不换
-    expect(sampleAt(tl, dwellBStart + 0.2).camera.sceneId).toBe('leg-1')
-    expect(sampleAt(tl, dwellBStart + 4.8).camera.sceneId).toBe('leg-1')
+  it('dwell 使用安全点相机平滑居中，不做街道级下钻', () => {
+    const first = sampleAt(tl, 3.2).camera
+    expect(first).toMatchObject({
+      kind: 'point', sceneId: 'stop-0', lng: 0, lat: 0,
+      zoom: 10.2, pitch: 25, bearing: 0, easeMs: 500,
+    })
+    const second = sampleAt(tl, dwellBStart + 0.2).camera
+    expect(second).toMatchObject({ kind: 'point', sceneId: 'stop-1', lng: 1, lat: 0, zoom: 10.2 })
   })
 
-  it('语音窗口后移：揭幕期间不播，盖住后开播、offset 扣除 wipe', () => {
+  it('dwell 小车停在当前节点而不是从地图上消失', () => {
+    const atA = sampleAt(tl, 4)
+    expect(atA.car).toMatchObject({ lng: 0, lat: 0, frac: 1 })
+    const atB = sampleAt(tl, dwellBStart + 1)
+    expect(atB.car).toMatchObject({ lng: 1, lat: 0, frac: 1 })
+    expect(atB.car.headingDeg).toBeCloseTo(90, 1)
+  })
+
+  it('语音窗口后移，并允许利用讲解后的停顿自然播完尾句', () => {
     expect(sampleAt(tl, 3.3).audio.playing).toBe(false)
     expect(sampleAt(tl, 4).audio).toEqual({ stopIndex: 0, playing: true, offset: 0.5 }) // audioStart=3.5
-    expect(sampleAt(tl, 5.6).audio.playing).toBe(false) // 窗口 3.5~5.5
+    expect(sampleAt(tl, 5.6).audio).toEqual({ stopIndex: 0, playing: true, offset: 2 })
+    expect(sampleAt(tl, 6.49).audio.playing).toBe(true)
+    expect(sampleAt(tl, 6.5).audio.playing).toBe(false) // 退出动画开始时才强制收尾
   })
 
   it('dwell 进度=该段走满；图片索引随进度切换', () => {
@@ -175,7 +191,7 @@ describe('sampleAt · 契约 v2', () => {
     expect(s.progress).toEqual({ legIndex: 1, frac: 1 })
     expect(s.car).toBeNull()
     expect(s.camera.easeMs).toBe(3000) // 片尾缓缓拉远到全程
-    expect(sampleAt(tl, 1).camera.easeMs).toBeUndefined() // intro/dwell 相机无滑动（seek 应瞬时定位）
+    expect(sampleAt(tl, 1).camera.easeMs).toBeUndefined() // intro 首帧直接定位
   })
 
   it('t 越界被夹住', () => {

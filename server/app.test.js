@@ -39,11 +39,25 @@ describe('POST /api/tts', () => {
 })
 
 describe('POST /api/narration', () => {
-  it('缺 apiKey 返回 400', async () => {
+  it('DeepSeek 缺 apiKey 返回 400', async () => {
     const res = await request(makeApp())
       .post('/api/narration')
-      .send({ items: [{ nodeName: 'x', dayNumber: 1 }] })
+      .send({ provider: 'deepseek', items: [{ nodeName: 'x', dayNumber: 1 }] })
     expect(res.status).toBe(400)
+  })
+  it('默认 Kimi 由服务端提供 Key，前端无需传 apiKey', async () => {
+    let received
+    const app = makeApp({
+      generateNarration: async (args) => {
+        received = args
+        return []
+      },
+    })
+    const res = await request(app)
+      .post('/api/narration')
+      .send({ items: [{ nodeName: '康定', dayNumber: 1 }] })
+    expect(res.status).toBe(200)
+    expect(received).toMatchObject({ provider: 'kimi', apiKey: '' })
   })
   it('items 为空返回 400', async () => {
     const res = await request(makeApp()).post('/api/narration').send({ apiKey: 'sk', items: [] })
@@ -62,10 +76,10 @@ describe('POST /api/narration', () => {
 })
 
 describe('POST /api/imageQuery', () => {
-  it('缺 apiKey 返回 400', async () => {
+  it('DeepSeek 缺 apiKey 返回 400', async () => {
     const res = await request(makeApp())
       .post('/api/imageQuery')
-      .send({ nodes: [{ name: 'x' }] })
+      .send({ provider: 'deepseek', nodes: [{ name: 'x' }] })
     expect(res.status).toBe(400)
   })
   it('nodes 为空返回 400', async () => {
@@ -98,10 +112,10 @@ describe('POST /api/imageQuery', () => {
 })
 
 describe('POST /api/choreography', () => {
-  it('缺 apiKey 返回 400', async () => {
+  it('DeepSeek 缺 apiKey 返回 400', async () => {
     const res = await request(makeApp())
       .post('/api/choreography')
-      .send({ nodes: [{ index: 0, narration: 'x', imageCount: 2 }] })
+      .send({ provider: 'deepseek', nodes: [{ index: 0, narration: 'x', imageCount: 2 }] })
     expect(res.status).toBe(400)
   })
   it('nodes 为空返回 400', async () => {

@@ -7,6 +7,8 @@ import { loadAmap } from '../composables/useAmap'
 import { planDrivingRoute } from '../composables/useDriving'
 import { searchNearbyPoi } from '../composables/useNearby'
 import { wgs84ToGcj02, wgs84PathToGcj02, gcj02ToWgs84 } from '../utils/coords'
+import { shouldForceRefreshRoutes } from '../utils/routePlanningState'
+import { ROUTE_DAY_COLORS, routeDayColor } from '../utils/routeDayVisual'
 import PoiSearchPanel from '../components/PoiSearchPanel.vue'
 import DayCard from '../components/DayCard.vue'
 import MapAddPopup from '../components/MapAddPopup.vue'
@@ -23,10 +25,7 @@ let AMapRef = null
 let overlays = [] // 当前绘制在地图上的 marker / polyline，便于清除
 
 // 每天一种颜色，循环使用
-const DAY_COLORS = [
-  '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6',
-  '#ec4899', '#14b8a6', '#f97316', '#6366f1',
-]
+const DAY_COLORS = ROUTE_DAY_COLORS
 
 const tab = ref('route') // 'route' | 'search'
 const targetDay = ref(1)
@@ -175,6 +174,17 @@ function toGcj(w) {
   return [p.lng, p.lat]
 }
 
+function createWaypointMarkerContent(name, color) {
+  const root = document.createElement('div')
+  root.title = name
+  root.setAttribute('aria-label', name)
+  root.style.cssText = 'width:24px;height:30px;display:flex;align-items:flex-start;justify-content:center;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25));'
+  const pin = document.createElement('div')
+  pin.style.cssText = `width:18px;height:18px;border:3px solid white;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);box-sizing:border-box;`
+  root.appendChild(pin)
+  return root
+}
+
 function drawPlan() {
   if (!map || !AMapRef) return
   clearOverlays()
@@ -182,7 +192,7 @@ function drawPlan() {
 
   const AMap = AMapRef
   trip.plan.days.forEach((day, i) => {
-    const color = DAY_COLORS[i % DAY_COLORS.length]
+    const color = routeDayColor(i)
 
     if (day.segments?.length) {
       // 已计算的真实驾车路线
@@ -216,6 +226,7 @@ function drawPlan() {
         position: toGcj(w),
         title: `Day ${day.dayNumber} · ${w.name}`,
         anchor: 'bottom-center',
+        content: createWaypointMarkerContent(w.name, color),
       })
       marker.on('click', () => {
         const info = new AMap.InfoWindow({
@@ -247,18 +258,20 @@ async function calcRoutes() {
   if (!AMapRef || !trip.plan || calculating.value) return
   calculating.value = true
   calcError.value = ''
+  const forceRefresh = shouldForceRefreshRoutes(trip.plan.days)
   try {
     for (const day of trip.plan.days) {
-      if (day.segments?.length || day.waypoints.length < 2) continue
+      if (day.waypoints.length < 2) continue
       const segments = []
       for (let i = 0; i < day.waypoints.length - 1; i++) {
         const from = day.waypoints[i]
         const to = day.waypoints[i + 1]
-        const route = await planDrivingRoute(AMapRef, from, to)
+        const route = await planDrivingRoute(AMapRef, from, to, { forceRefresh })
         segments.push({ fromName: from.name, toName: to.name, ...route })
       }
       trip.setDaySegments(day.dayNumber, segments)
     }
+    trip.clearRouteNotice()
   } catch (e) {
     calcError.value = '路线计算失败：' + e.message + '（已算好的天已保留，可重试）'
   } finally {
@@ -314,7 +327,8 @@ function flyTo(poi) {
             @click="calcRoutes"
             :disabled="calculating"
             class="w-full py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
-          >{{ calculating ? '计算中…' : '计算驾车路线' }}</button>
+          >{{ calculating ? '计算中…' : shouldForceRefreshRoutes(trip.plan.days) ? '重新计算驾车路线' : '计算驾车路线' }}</button>
+          <p v-if="trip.routeNotice" class="text-xs text-amber-600">{{ trip.routeNotice }}</p>
           <p v-if="calcError" class="text-xs text-red-500">{{ calcError }}</p>
           <DayCard
             v-for="(day, i) in trip.plan.days"
