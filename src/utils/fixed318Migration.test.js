@@ -39,6 +39,53 @@ function legacyFixed318() {
 }
 
 describe('migrateFixed318Plan', () => {
+  it('把旧版相邻的海子山与姊妹湖合并到G318主线节点，并保留两边内容', () => {
+    const source = legacyFixed318()
+    source.presetId = 'fixed-318'
+    source.routeDataVersion = '2026-07-22'
+    source.days[0].waypoints.splice(
+      4,
+      0,
+      {
+        name: '海子山',
+        lng: 99.560745,
+        lat: 30.256014,
+        narration: '先翻越海子山。',
+        note: '旧海子山备注',
+        images: ['haizi-a'],
+      },
+      {
+        name: '姊妹湖',
+        lng: 99.551793,
+        lat: 30.299644,
+        narration: '再看见姊妹湖。',
+        note: '旧姊妹湖备注',
+        images: ['lake-a'],
+      },
+    )
+
+    const result = migrateFixed318Plan(source)
+    const merged = result.plan.days[0].waypoints.filter(
+      (point) => point.placeId === 'sister-lakes',
+    )
+
+    expect(result.migrated).toBe(true)
+    expect(result.plan.routeDataVersion).toBe('2026-07-31')
+    expect(result.changedDays).toContain(1)
+    expect(result.plan.days[0].segments).toBeNull()
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toMatchObject({
+      name: '姊妹湖',
+      lng: 99.551793,
+      lat: 30.299644,
+      images: ['haizi-a', 'lake-a'],
+    })
+    expect(merged[0].narration).toContain('先翻越海子山')
+    expect(merged[0].narration).toContain('再看见姊妹湖')
+    expect(merged[0].note).toContain('旧海子山备注')
+    expect(merged[0].note).toContain('旧姊妹湖备注')
+  })
+
   it('更新旧版固定318坐标、清除受影响路线并保留用户内容', () => {
     const source = legacyFixed318()
     const result = migrateFixed318Plan(source)

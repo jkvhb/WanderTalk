@@ -1,7 +1,7 @@
 import { preset318 } from '../data/preset318'
 
 export const FIXED_318_PRESET_ID = 'fixed-318'
-export const FIXED_318_ROUTE_DATA_VERSION = '2026-07-22'
+export const FIXED_318_ROUTE_DATA_VERSION = '2026-07-31'
 
 const ANCHOR_NAMES = [
   '成都',
@@ -29,6 +29,11 @@ const canonicalByName = new Map()
 for (const point of canonicalPoints) {
   if (!canonicalByName.has(point.name)) canonicalByName.set(point.name, point)
 }
+const LEGACY_NAME_TO_PLACE_ID = new Map([
+  // 旧路书把不可直接驾车到达的自然山体中心当作独立节点，导致高德绕行数百公里。
+  // 固定318主线把“海子山 + 姊妹湖”视为同一个G318观景区域。
+  ['海子山', 'sister-lakes'],
+])
 
 function looksLikeLegacyFixed318(plan) {
   if (!plan || typeof plan !== 'object' || !String(plan.name || '').includes('318')) return false
@@ -47,6 +52,33 @@ function coordinateChanged(point, canonical) {
   )
 }
 
+function joinUniqueText(first, second) {
+  const parts = [first, second]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+  return [...new Set(parts)].join('\n\n')
+}
+
+function mergeSamePlace(first, second, canonical) {
+  return {
+    ...first,
+    ...second,
+    placeId: canonical.placeId,
+    name: canonical.name,
+    lng: canonical.lng,
+    lat: canonical.lat,
+    ...(canonical.altitude == null ? {} : { altitude: canonical.altitude }),
+    narration: joinUniqueText(first.narration, second.narration),
+    note: joinUniqueText(first.note, second.note),
+    images: [...new Set([
+      ...(Array.isArray(first.images) ? first.images : []),
+      ...(Array.isArray(second.images) ? second.images : []),
+    ])],
+    choreography: second.choreography ?? first.choreography ?? null,
+    source: cloneData(canonical.source),
+  }
+}
+
 export function migrateFixed318Plan(plan) {
   if (
     !looksLikeLegacyFixed318(plan) ||
@@ -62,21 +94,42 @@ export function migrateFixed318Plan(plan) {
   const changedDays = []
   for (const day of migrated.days || []) {
     let invalidatesSegments = false
+    const normalizedPoints = []
     for (const point of day?.waypoints || []) {
+      const aliasPlaceId = LEGACY_NAME_TO_PLACE_ID.get(point.name)
       const canonical =
         (point.placeId && canonicalById.get(point.placeId)) ||
+        (aliasPlaceId && canonicalById.get(aliasPlaceId)) ||
         canonicalByName.get(point.name)
-      if (!canonical) continue
-      if (coordinateChanged(point, canonical)) invalidatesSegments = true
-      point.placeId = canonical.placeId
-      point.lng = canonical.lng
-      point.lat = canonical.lat
-      if (canonical.altitude != null) point.altitude = canonical.altitude
-      point.source = cloneData(canonical.source)
-      if (!Array.isArray(point.roles)) point.roles = cloneData(canonical.roles)
-      if (point.narrate == null) point.narrate = canonical.narrate
-      if (!point.routeType) point.routeType = canonical.routeType
+      if (canonical) {
+        if (coordinateChanged(point, canonical) || point.name !== canonical.name) {
+          invalidatesSegments = true
+        }
+        point.placeId = canonical.placeId
+        point.name = canonical.name
+        point.lng = canonical.lng
+        point.lat = canonical.lat
+        if (canonical.altitude != null) point.altitude = canonical.altitude
+        point.source = cloneData(canonical.source)
+        if (!Array.isArray(point.roles)) point.roles = cloneData(canonical.roles)
+        if (point.narrate == null) point.narrate = canonical.narrate
+        if (!point.routeType) point.routeType = canonical.routeType
+      }
+
+      const previous = normalizedPoints.at(-1)
+      if (
+        canonical &&
+        previous?.placeId &&
+        previous.placeId === point.placeId
+      ) {
+        normalizedPoints[normalizedPoints.length - 1] =
+          mergeSamePlace(previous, point, canonical)
+        invalidatesSegments = true
+      } else {
+        normalizedPoints.push(point)
+      }
     }
+    day.waypoints = normalizedPoints
     if (invalidatesSegments) {
       day.segments = null
       changedDays.push(day.dayNumber)
