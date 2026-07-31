@@ -16,6 +16,10 @@ export function shouldResolveShowcaseLayout({
   )
 }
 
+export function canCommitShowcaseLayout(state) {
+  return state?.cameraSettled === true && shouldResolveShowcaseLayout(state)
+}
+
 export function isShowcaseLayoutVisible(stopIndex, layoutReadyStop) {
   return stopIndex != null && stopIndex === layoutReadyStop
 }

@@ -8,6 +8,7 @@ import { getImage } from '../utils/db'
 import { normalizeShowcaseStory } from '../utils/showcaseStory'
 import { resolveMapShowcaseLayout } from '../utils/mapShowcaseLayout'
 import {
+  canCommitShowcaseLayout,
   shouldResolveShowcaseLayout,
   isShowcaseLayoutVisible,
 } from '../utils/showcasePresentation'
@@ -119,6 +120,13 @@ function sampledRoutePoints(stopIndex) {
 }
 
 function recomputeLayout() {
+  if (!canCommitShowcaseLayout({
+    enterFrac: showcase.value?.enterFrac,
+    stopIndex: showcase.value?.stopIndex,
+    layoutReadyStop: layoutReadyStop.value,
+    imagesReady: imagesReady.value,
+    cameraSettled: mapAdapter?.isCameraSettled?.() === true,
+  })) return false
   const stage = stageEl.value?.getBoundingClientRect()
   const stopIndex = showcase.value?.stopIndex
   const node = activeNode.value
@@ -154,7 +162,9 @@ function recomputeLayout() {
   return true
 }
 
-function scheduleLayout(retries = 12) {
+// 手动跳转可能在节点镜头刚开始移动时就到达 enterFrac=1；最多等约 4 秒，
+// 以地图引擎实际停止为准，而不是再次猜测一个时间轴百分比。
+function scheduleLayout(retries = 240) {
   if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(layoutRetryId)
   if (recomputeLayout() || retries <= 0) return
   if (typeof requestAnimationFrame !== 'undefined') {

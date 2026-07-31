@@ -307,6 +307,10 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     return { x: Math.round(p.x), y: Math.round(p.y) }
   }
 
+  function isCameraSettled() {
+    return !!map && !map.isMoving()
+  }
+
   // ?????????????????????????????????
   // ???/???? resolve(false)????????????????????
   function waitForTiles({ timeoutMs = 2500 } = {}) {
@@ -360,6 +364,7 @@ export function createFlightMap({ container, tk, center = [102, 30], onError }) 
     setCamera,
     drawRoute,
     project,
+    isCameraSettled,
     setCar,
     setProgress,
     waitForTiles,
