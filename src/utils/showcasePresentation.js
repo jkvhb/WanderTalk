@@ -1,4 +1,6 @@
-export const SHOWCASE_LAYOUT_TRIGGER = 0.6
+// 镜头居中与展示页进入共用同一段时长；太早投影会把尚在移动的路线误判为占满安全区。
+// 等镜头完成后再定稿素材轨；素材随后通过自身淡入衔接旁白。
+export const SHOWCASE_LAYOUT_TRIGGER = 1
 
 export function shouldResolveShowcaseLayout({
   enterFrac,

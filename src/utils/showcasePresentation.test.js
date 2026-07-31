@@ -7,10 +7,10 @@ describe('showcase presentation state', () => {
     expect(isShowcaseLayoutVisible(4, 4)).toBe(true)
   })
 
-  it('镜头进入六成且图片加载完成后才解析最终布局', () => {
+  it('镜头基本完成居中且图片加载完成后才解析最终布局', () => {
     const base = { stopIndex: 4, layoutReadyStop: -1, imagesReady: true }
-    expect(shouldResolveShowcaseLayout({ ...base, enterFrac: 0.59 })).toBe(false)
-    expect(shouldResolveShowcaseLayout({ ...base, enterFrac: 0.6 })).toBe(true)
+    expect(shouldResolveShowcaseLayout({ ...base, enterFrac: 0.99 })).toBe(false)
+    expect(shouldResolveShowcaseLayout({ ...base, enterFrac: 1 })).toBe(true)
     expect(shouldResolveShowcaseLayout({ ...base, enterFrac: 0.8, imagesReady: false })).toBe(false)
   })
 })
