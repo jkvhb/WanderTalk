@@ -119,6 +119,11 @@ export const useTripStore = defineStore('trip', () => {
     const catalog = new Map(
       preset318.days.flatMap((day) => day.waypoints).map((point) => [point.placeId, cloneJsonValue(point)]),
     )
+    for (const spec of authoritative318.days.flatMap((day) => day.nodes)) {
+      if (!catalog.has(spec.placeId) && spec.location) {
+        catalog.set(spec.placeId, cloneJsonValue(spec.location))
+      }
+    }
     const pending = authoritative318.days
       .flatMap((day) => day.nodes)
       .filter((spec) => !catalog.has(spec.placeId))

@@ -15,10 +15,10 @@ function fakeAMapReturning(pois, status = 'complete') {
 }
 
 const nimagongRequest = {
-  query: '尼玛贡神山大型观景台旅游服务区',
-  city: '理塘县',
+  queries: ['尼玛贡神山大型观景台旅游服务区', '尼玛贡神山观景台', '尼玛贡神山'],
+  city: '甘孜藏族自治州',
   aliases: ['尼玛贡神山'],
-  regionHints: ['理塘', '甘孜'],
+  regionHints: ['理塘', '雅江', '甘孜'],
 }
 
 describe('choosePlaceCandidate', () => {
@@ -62,7 +62,7 @@ describe('resolvePlaceByText', () => {
       coordinateSystem: 'WGS-84',
       source: {
         provider: 'amap-js-place-search',
-        query: nimagongRequest.query,
+        query: '尼玛贡神山大型观景台旅游服务区',
         resultName: '尼玛贡神山大型观景台旅游服务区',
         address: '甘孜州理塘县',
         gcj02: { lng: 100.7, lat: 30.1 },
@@ -76,5 +76,33 @@ describe('resolvePlaceByText', () => {
   it('高德检索失败时不返回伪造地点', async () => {
     const AMap = fakeAMapReturning([], 'error')
     await expect(resolvePlaceByText(AMap, nimagongRequest)).rejects.toThrow('高德地点搜索失败')
+  })
+
+  it('完整名称无结果时依次降级检索短名称且不锁死县级范围', async () => {
+    const searched = []
+    class PlaceSearch {
+      constructor(options) {
+        expect(options.city).toBe('甘孜藏族自治州')
+        expect(options.citylimit).toBe(false)
+      }
+
+      search(query, callback) {
+        searched.push(query)
+        if (query === '尼玛贡神山大型观景台旅游服务区') {
+          callback('no_data', {})
+          return
+        }
+        callback('complete', { poiList: { pois: [{
+          name: '尼玛贡神山观景台',
+          address: '甘孜州雅江县与理塘县交界区域',
+          location: { lng: 100.74, lat: 30.08 },
+        }] } })
+      }
+    }
+
+    const result = await resolvePlaceByText({ PlaceSearch }, nimagongRequest)
+    expect(searched).toEqual(['尼玛贡神山大型观景台旅游服务区', '尼玛贡神山观景台'])
+    expect(result.name).toBe('尼玛贡神山观景台')
+    expect(result.source.query).toBe('尼玛贡神山观景台')
   })
 })

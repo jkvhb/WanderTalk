@@ -29,16 +29,20 @@ function coordinateOf(location) {
   return { lng, lat }
 }
 
-export function resolvePlaceByText(AMap, request, { now = () => new Date().toISOString() } = {}) {
+function searchOnce(AMap, request, query) {
   return new Promise((resolve, reject) => {
     const search = new AMap.PlaceSearch({
       pageSize: 10,
       pageIndex: 1,
       city: request.city,
-      citylimit: true,
+      citylimit: false,
     })
 
-    search.search(request.query, (status, result) => {
+    search.search(query, (status, result) => {
+      if (status === 'no_data') {
+        resolve(null)
+        return
+      }
       if (status !== 'complete') {
         reject(new Error('高德地点搜索失败'))
         return
@@ -46,27 +50,38 @@ export function resolvePlaceByText(AMap, request, { now = () => new Date().toISO
 
       try {
         const poi = choosePlaceCandidate(result?.poiList?.pois, request)
-        const gcj02 = coordinateOf(poi.location)
-        const wgs84 = gcj02ToWgs84(gcj02.lng, gcj02.lat)
-        const address = Array.isArray(poi.address) ? poi.address.join(' ') : String(poi.address || '')
-        resolve({
-          name: poi.name,
-          address,
-          lng: wgs84.lng,
-          lat: wgs84.lat,
-          coordinateSystem: 'WGS-84',
-          source: {
-            provider: 'amap-js-place-search',
-            query: request.query,
-            resultName: poi.name,
-            address,
-            gcj02,
-            checkedAt: now(),
-          },
-        })
+        resolve(poi)
       } catch (error) {
-        reject(error)
+        if (error.message === '没有找到符合名称和地区的地点') resolve(null)
+        else reject(error)
       }
     })
   })
+}
+
+export async function resolvePlaceByText(AMap, request, { now = () => new Date().toISOString() } = {}) {
+  const queries = request.queries?.length ? request.queries : [request.query].filter(Boolean)
+  for (const query of queries) {
+    const poi = await searchOnce(AMap, request, query)
+    if (!poi) continue
+    const gcj02 = coordinateOf(poi.location)
+    const wgs84 = gcj02ToWgs84(gcj02.lng, gcj02.lat)
+    const address = Array.isArray(poi.address) ? poi.address.join(' ') : String(poi.address || '')
+    return {
+      name: poi.name,
+      address,
+      lng: wgs84.lng,
+      lat: wgs84.lat,
+      coordinateSystem: 'WGS-84',
+      source: {
+        provider: 'amap-js-place-search',
+        query,
+        resultName: poi.name,
+        address,
+        gcj02,
+        checkedAt: now(),
+      },
+    }
+  }
+  throw new Error('没有找到符合名称和地区的地点')
 }

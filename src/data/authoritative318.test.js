@@ -21,12 +21,22 @@ describe('authoritative318', () => {
     }
   })
 
-  it('只把两个尚未核验地点标记为需要检索', () => {
+  it('把无名路口保存为道路交叉点，只留下尼玛贡神山需要检索', () => {
     const unresolved = authoritative318.days
       .flatMap((day) => day.nodes)
       .filter((node) => node.resolve)
       .map((node) => node.placeId)
-    expect(unresolved).toEqual(['yingguanzhai-junction', 'nimagong-viewpoint'])
+    expect(unresolved).toEqual(['nimagong-viewpoint'])
+    const junction = authoritative318.days[1].nodes.find((node) => node.placeId === 'yingguanzhai-junction')
+    expect(junction).toMatchObject({
+      name: 'G318/G248交叉口（营官村）',
+      location: {
+        lng: 101.5466692,
+        lat: 30.038074,
+        coordinateSystem: 'WGS-84',
+        source: { provider: 'openstreetmap-road-intersection' },
+      },
+    })
   })
 
   it('把可选支线排除在每日主线之外', () => {

@@ -16,25 +16,45 @@ const day = (dayNumber, overnightPlaceId, nodes) => Object.freeze({
 })
 
 const unresolved = {
-  'yingguanzhai-junction': {
-    resolve: Object.freeze({
-      query: '营官寨三岔路口',
-      city: '康定市',
-      aliases: Object.freeze(['营官寨', '营官村']),
-      regionHints: Object.freeze(['康定', '新都桥']),
-    }),
-  },
   'nimagong-viewpoint': {
     resolve: Object.freeze({
-      query: '尼玛贡神山大型观景台旅游服务区',
-      city: '理塘县',
+      queries: Object.freeze(['尼玛贡神山大型观景台旅游服务区', '尼玛贡神山观景台', '尼玛贡神山']),
+      city: '甘孜藏族自治州',
       aliases: Object.freeze(['尼玛贡神山']),
-      regionHints: Object.freeze(['理塘', '甘孜']),
+      regionHints: Object.freeze(['理塘', '雅江', '甘孜']),
     }),
   },
 }
 
-const n = (id, name, level, pages, brief, image) => mainNode(id, name, level, pages, brief, image, unresolved[id])
+const verified = {
+  'yingguanzhai-junction': {
+    location: Object.freeze({
+      placeId: 'yingguanzhai-junction',
+      name: 'G318/G248交叉口（营官村）',
+      address: '四川省甘孜藏族自治州康定市新都桥镇营官村附近',
+      lng: 101.5466692,
+      lat: 30.038074,
+      coordinateSystem: 'WGS-84',
+      source: Object.freeze({
+        provider: 'openstreetmap-road-intersection',
+        checkedAt: '2026-08-02',
+        nodeId: '634137812',
+        roadRefs: Object.freeze(['G318', 'G248']),
+        note: '路书称“营官寨三岔路口”；该处是道路交叉点，不是独立 POI。G248 为旧 S215/营官—九龙公路。',
+      }),
+    }),
+  },
+}
+
+const n = (id, name, level, pages, brief, image) => mainNode(
+  id,
+  name,
+  level,
+  pages,
+  brief,
+  image,
+  { ...(unresolved[id] || {}), ...(verified[id] || {}) },
+)
 
 const days = [
   day(1, 'kangding', [
@@ -47,7 +67,7 @@ const days = [
   ]),
   day(2, 'yajiang', [
     n('zheduo-pass', '折多山垭口', 'A', [5], '海拔快速上升，气温、氧气和道路条件明显变化；讲解同时包含震撼感和安全提醒。', '4298 m 标志、经幡、垭口道路和明确折多山地标。'),
-    n('yingguanzhai-junction', '营官寨三岔路口', 'C', [5], '左侧通往雅哈垭口、冷嘎措等支线，默认主线继续向新都桥；只解释路线选择。', '路口、道路指示或区域地图；没有可信实景图时使用地图信息卡。'),
+    n('yingguanzhai-junction', 'G318/G248交叉口（营官村）', 'C', [5], '路书俗称营官寨三岔路口；实际是 G318 与 G248（旧 S215、营官—九龙公路）的无名交叉口。向南可进入甲根坝及雅哈垭口方向，默认主线继续向新都桥。', 'G318/G248 道路交叉口、营官村区域道路指示或地图信息卡；不要求搜索一个并不存在的景点 POI。'),
     n('xinduqiao', '新都桥', 'A', [5, 6], '光影、草甸、藏寨与道路风景廊道共同构成摄影目的地，解释光线、地形和聚落为何适合摄影。', '新都桥道路、金黄树木或草甸、藏寨和贡嘎方向景观；必须具备地点标签佐证。'),
     n('yajiang', '雅江', 'A', [6, 7], '悬崖江城、松茸产业和河谷聚落，章尾从高山开阔景观收束到峡谷县城。', '雅江县城依山临江、松茸产业或天路十八弯邻近景观；不能只用普通菌菇图。'),
   ]),

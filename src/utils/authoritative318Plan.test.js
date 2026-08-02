@@ -11,7 +11,6 @@ function catalogFromPreset() {
 }
 
 const resolvedMissing = {
-  'yingguanzhai-junction': { placeId: 'yingguanzhai-junction', name: '营官寨三岔路口', lng: 101.6, lat: 30.05, address: '康定市' },
   'nimagong-viewpoint': { placeId: 'nimagong-viewpoint', name: '尼玛贡神山观景台', lng: 100.75, lat: 30.1, address: '理塘县' },
 }
 
@@ -19,10 +18,7 @@ describe('compileAuthoritative318Plan', () => {
   it('存在未解析主线地点时阻止生成路线计划', () => {
     const result = compileAuthoritative318Plan({ authority: authoritative318, catalog: catalogFromPreset() })
     expect(result.plan).toBeNull()
-    expect(result.issues.map((issue) => issue.placeId)).toEqual([
-      'yingguanzhai-junction',
-      'nimagong-viewpoint',
-    ])
+    expect(result.issues.map((issue) => issue.placeId)).toEqual(['nimagong-viewpoint'])
     expect(result.issues[0]).toMatchObject({ code: 'UNRESOLVED_MAIN_PLACE', severity: 'error' })
   })
 
@@ -61,6 +57,9 @@ describe('compileAuthoritative318Plan', () => {
     const yingguanzhai = plan.days[1].waypoints.find((point) => point.placeId === 'yingguanzhai-junction')
 
     expect(yingguanzhai).toMatchObject({
+      name: 'G318/G248交叉口（营官村）',
+      lng: 101.5466692,
+      lat: 30.038074,
       narrationLevel: 'C',
       narrate: true,
       routeType: 'main',

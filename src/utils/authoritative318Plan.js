@@ -39,12 +39,16 @@ function routeOrigin(place) {
   }
 }
 
+function placeFor(spec, catalog) {
+  return catalog?.get(spec.placeId) || spec.location || null
+}
+
 export function compileAuthoritative318Plan({ authority, catalog }) {
   const issues = []
 
   for (const day of authority?.days || []) {
     for (const spec of day.nodes || []) {
-      if (!catalog?.has(spec.placeId)) {
+      if (!placeFor(spec, catalog)) {
         issues.push(unresolvedIssue(day.dayNumber, spec.placeId, spec.name))
       }
     }
@@ -54,7 +58,7 @@ export function compileAuthoritative318Plan({ authority, catalog }) {
 
   const days = authority.days.map((day, dayIndex) => {
     const listed = day.nodes.map((spec, nodeIndex) => narratedPoint(
-      catalog.get(spec.placeId),
+      placeFor(spec, catalog),
       spec,
       dayIndex,
       nodeIndex,
