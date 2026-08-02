@@ -49,6 +49,16 @@ export function validateCalculatedRoutes(plan) {
     }
 
     segments.forEach((segment, segmentIndex) => {
+      if (!segment || typeof segment !== 'object') {
+        issues.push(issue(
+          'ROUTE_SEGMENT_MISSING',
+          'error',
+          day,
+          segmentIndex,
+          `Day ${day?.dayNumber ?? '?'} 第 ${segmentIndex + 1} 段驾驶路线缺失`,
+        ))
+        return
+      }
       const path = Array.isArray(segment?.path) ? segment.path : []
       const from = coordinateOf(waypoints[segmentIndex])
       const to = coordinateOf(waypoints[segmentIndex + 1])

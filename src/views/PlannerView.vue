@@ -198,7 +198,7 @@ function drawPlan() {
 
     if (day.segments?.length) {
       // 已计算的真实驾车路线
-      for (const seg of day.segments) {
+      for (const seg of day.segments.filter((item) => Array.isArray(item?.path) && item.path.length >= 2)) {
         overlays.push(
           new AMap.Polyline({
             path: wgs84PathToGcj02(seg.path),
@@ -269,20 +269,11 @@ async function calcRoutes() {
   calcError.value = ''
   const forceRefresh = shouldForceRefreshRoutes(trip.plan.days)
   try {
-    for (const day of trip.plan.days) {
-      if (day.waypoints.length < 2) continue
-      const segments = []
-      for (let i = 0; i < day.waypoints.length - 1; i++) {
-        const from = day.waypoints[i]
-        const to = day.waypoints[i + 1]
-        const route = await planDrivingRoute(AMapRef, from, to, { forceRefresh })
-        segments.push({ fromName: from.name, toName: to.name, ...route })
-      }
-      trip.setDaySegments(day.dayNumber, segments)
-    }
-    trip.clearRouteNotice()
+    await trip.runRouteCalculation({
+      planRoute: (from, to) => planDrivingRoute(AMapRef, from, to, { forceRefresh }),
+    })
   } catch (e) {
-    calcError.value = '路线计算失败：' + e.message + '（已算好的天已保留，可重试）'
+    calcError.value = '路线计算任务异常：' + e.message
   } finally {
     calculating.value = false
   }
@@ -355,6 +346,24 @@ function flyTo(poi) {
           >{{ calculating ? '计算中…' : shouldForceRefreshRoutes(trip.plan.days) ? '计算全部真实驾驶路线' : '路线已计算，可重新计算' }}</button>
           <p v-if="trip.routeNotice" class="text-xs text-amber-600">{{ trip.routeNotice }}</p>
           <p v-if="calcError" class="text-xs text-red-500">{{ calcError }}</p>
+          <p v-if="trip.routeJob.state === 'success'" class="text-xs text-green-600">
+            ✓ 已完成 {{ trip.routeJob.done }}/{{ trip.routeJob.total }} 路段，路线校验通过
+          </p>
+          <div v-else-if="trip.routeJob.state === 'partial'" class="text-xs text-amber-600 space-y-1">
+            <p>◐ 已完成 {{ trip.routeJob.done }}/{{ trip.routeJob.total }} · 失败 {{ trip.routeJob.failed }}</p>
+            <p v-for="item in trip.routeJob.failures" :key="`${item.dayNumber}-${item.segmentIndex}`">
+              Day {{ item.dayNumber }} {{ item.fromName }} → {{ item.toName }}：{{ item.message }}
+            </p>
+            <p v-for="(item, index) in trip.routeJob.issues.filter((issue) => issue.severity === 'error')" :key="`quality-${item.dayNumber}-${item.segmentIndex}-${index}`">
+              {{ item.message }}
+            </p>
+          </div>
+          <div v-else-if="trip.routeJob.state === 'failed'" class="text-xs text-red-500 space-y-1">
+            <p>✕ 路线计算失败</p>
+            <p v-for="item in trip.routeJob.failures" :key="`${item.dayNumber}-${item.segmentIndex}`">
+              Day {{ item.dayNumber }} {{ item.fromName }} → {{ item.toName }}：{{ item.message }}
+            </p>
+          </div>
           <DayCard
             v-for="(day, i) in trip.plan.days"
             :key="day.dayNumber"

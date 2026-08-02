@@ -29,6 +29,18 @@ describe('validateCalculatedRoutes', () => {
     expect(issues.every((issue) => issue.severity === 'error')).toBe(true)
   })
 
+  it('数组中的空槽位仍然视为缺失路段', () => {
+    const issues = validateCalculatedRoutes(planOf([a, b, c], [
+      segment(a, b, [[100, 30], [100.05, 30.05], [100.1, 30.1]]),
+      null,
+    ]))
+    expect(issues).toContainEqual(expect.objectContaining({
+      code: 'ROUTE_SEGMENT_MISSING',
+      segmentIndex: 1,
+      severity: 'error',
+    }))
+  })
+
   it('拒绝路线首尾远离指定图钉', () => {
     const issues = validateCalculatedRoutes(planOf([a, b], [
       segment(a, b, [[100.05, 30.05], [100.07, 30.07], [100.08, 30.08]]),

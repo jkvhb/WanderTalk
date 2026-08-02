@@ -6,6 +6,29 @@ import { preset318Narration } from '../data/preset318Narration'
 import { isContentNode } from '../utils/contentNode'
 import { compileAuthoritative318Plan } from '../utils/authoritative318Plan'
 import { migrateFixed318Plan } from '../utils/fixed318Migration'
+import { validateCalculatedRoutes } from '../utils/routeQuality'
+
+export function routeRunState({ total, done, failed, issues = [], failures = [] }) {
+  const hasRouteErrors = issues.some((entry) => entry.severity === 'error')
+  const state = total > 0 && done === total && failed === 0 && !hasRouteErrors
+    ? 'success'
+    : done === 0
+      ? 'failed'
+      : 'partial'
+  return { state, total, done, failed, issues, failures }
+}
+
+function existingSegmentIsUsable(day, segmentIndex, segment) {
+  if (!segment) return false
+  const issues = validateCalculatedRoutes({
+    days: [{
+      dayNumber: day.dayNumber,
+      waypoints: [day.waypoints[segmentIndex], day.waypoints[segmentIndex + 1]],
+      segments: [segment],
+    }],
+  })
+  return !issues.some((entry) => entry.severity === 'error')
+}
 
 // 单天结构归一化：保证 dayNumber 连续、路线元数据完整、segments 字段存在。
 function isRecord(value) {
@@ -71,6 +94,7 @@ export const useTripStore = defineStore('trip', () => {
   const plan = ref(null)
   const routeNotice = ref('')
   const authorityJob = ref({ state: 'idle', done: 0, total: 0, errors: [] })
+  const routeJob = ref({ state: 'idle', total: 0, done: 0, failed: 0, issues: [], failures: [] })
 
   const dayCount = computed(() => plan.value?.days.length ?? 0)
 
@@ -86,6 +110,7 @@ export const useTripStore = defineStore('trip', () => {
   function loadPreset318() {
     plan.value = normalizePlan(structuredClone(preset318))
     routeNotice.value = ''
+    routeJob.value = { state: 'idle', total: 0, done: 0, failed: 0, issues: [], failures: [] }
   }
 
   async function loadAuthoritative318({ resolvePlace }) {
@@ -147,6 +172,7 @@ export const useTripStore = defineStore('trip', () => {
     }
     plan.value = normalizePlan(result.plan)
     authorityJob.value.state = 'ready'
+    routeJob.value = { state: 'idle', total: 45, done: 0, failed: 0, issues: [], failures: [] }
     routeNotice.value = '权威底稿已加载，请计算全部真实驾驶路线'
     return true
   }
@@ -167,6 +193,7 @@ export const useTripStore = defineStore('trip', () => {
     plan.value = null
     routeNotice.value = ''
     authorityJob.value = { state: 'idle', done: 0, total: 0, errors: [] }
+    routeJob.value = { state: 'idle', total: 0, done: 0, failed: 0, issues: [], failures: [] }
   }
 
   // —— 天编辑 ——
@@ -236,6 +263,60 @@ export const useTripStore = defineStore('trip', () => {
   function setDaySegments(dayNumber, segments) {
     const day = findDay(dayNumber)
     if (day) day.segments = segments
+  }
+
+  async function runRouteCalculation({ planRoute }) {
+    if (!plan.value || typeof planRoute !== 'function') return false
+    const total = plan.value.days.reduce(
+      (sum, day) => sum + Math.max(0, day.waypoints.length - 1),
+      0,
+    )
+    routeJob.value = { state: 'running', total, done: 0, failed: 0, issues: [], failures: [], processed: 0 }
+
+    for (const day of plan.value.days) {
+      const expected = Math.max(0, day.waypoints.length - 1)
+      const segments = Array.from({ length: expected }, (_, index) => day.segments?.[index] ?? null)
+      for (let index = 0; index < expected; index += 1) {
+        const existing = segments[index]
+        if (existingSegmentIsUsable(day, index, existing)) {
+          routeJob.value.done += 1
+          routeJob.value.processed += 1
+          continue
+        }
+
+        const from = day.waypoints[index]
+        const to = day.waypoints[index + 1]
+        try {
+          const route = await planRoute(from, to)
+          segments[index] = { fromName: from.name, toName: to.name, ...route }
+          routeJob.value.done += 1
+        } catch (error) {
+          segments[index] = null
+          routeJob.value.failed += 1
+          routeJob.value.failures.push({
+            dayNumber: day.dayNumber,
+            segmentIndex: index,
+            fromName: from.name,
+            toName: to.name,
+            message: error?.message || '路线计算失败',
+          })
+        } finally {
+          routeJob.value.processed += 1
+          day.segments = [...segments]
+        }
+      }
+    }
+
+    const issues = validateCalculatedRoutes(plan.value)
+    routeJob.value = routeRunState({
+      total,
+      done: routeJob.value.done,
+      failed: routeJob.value.failed,
+      issues,
+      failures: routeJob.value.failures,
+    })
+    if (routeJob.value.state === 'success') routeNotice.value = ''
+    return routeJob.value.state === 'success'
   }
 
   // —— 旁白 ——
@@ -338,6 +419,7 @@ export const useTripStore = defineStore('trip', () => {
     plan,
     routeNotice,
     authorityJob,
+    routeJob,
     dayCount,
     allWaypoints,
     loadPreset318,
@@ -354,6 +436,7 @@ export const useTripStore = defineStore('trip', () => {
     updateWaypoint,
     moveWaypoint,
     setDaySegments,
+    runRouteCalculation,
     setNarration,
     restorePrevNarration,
     setNote,

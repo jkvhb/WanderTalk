@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useTripStore } from './trip'
+import { routeRunState, useTripStore } from './trip'
 
 describe('trip store', () => {
   beforeEach(() => {
@@ -343,6 +343,95 @@ describe('trip store 编辑', () => {
     t.restorePrevNarration(1, 0)
     expect(t.plan.days[0].waypoints[0].narration).toBe('初稿')
     expect(t.plan.days[0].waypoints[0].prevNarration).toBe('新稿')
+  })
+})
+
+describe('trip store 权威路线重算', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('准确区分全部成功、部分成功和全部失败', () => {
+    expect(routeRunState({ total: 45, done: 45, failed: 0, issues: [] })).toMatchObject({
+      state: 'success', done: 45, failed: 0,
+    })
+    expect(routeRunState({ total: 45, done: 44, failed: 1, issues: [] })).toMatchObject({
+      state: 'partial', failed: 1,
+    })
+    expect(routeRunState({ total: 45, done: 0, failed: 45, issues: [] })).toMatchObject({
+      state: 'failed', done: 0,
+    })
+  })
+
+  it('单段失败时保留已成功道路，重试只补失败路段', async () => {
+    const t = useTripStore()
+    t.replacePlan({
+      name: '测试路线',
+      days: [{
+        dayNumber: 1,
+        overnight: 'C',
+        overnightPlaceId: 'c',
+        waypoints: [
+          { placeId: 'a', name: 'A', lng: 100, lat: 30 },
+          { placeId: 'b', name: 'B', lng: 100.1, lat: 30.1 },
+          { placeId: 'c', name: 'C', lng: 100.2, lat: 30.2 },
+        ],
+        segments: null,
+      }],
+    })
+    const calls = []
+    const firstRun = await t.runRouteCalculation({
+      planRoute: async (from, to) => {
+        calls.push(`${from.name}-${to.name}`)
+        if (from.name === 'B') throw new Error('服务暂时不可用')
+        return { path: [[100, 30], [100.05, 30.05], [100.1, 30.1]], distance: 15000, duration: 900 }
+      },
+    })
+
+    expect(firstRun).toBe(false)
+    expect(calls).toEqual(['A-B', 'B-C'])
+    expect(t.plan.days[0].segments[0].path).toHaveLength(3)
+    expect(t.plan.days[0].segments[1]).toBeNull()
+    expect(t.routeJob).toMatchObject({ state: 'partial', done: 1, failed: 1, total: 2 })
+    expect(t.routeJob.failures[0]).toMatchObject({ dayNumber: 1, fromName: 'B', toName: 'C' })
+
+    calls.length = 0
+    const secondRun = await t.runRouteCalculation({
+      planRoute: async (from, to) => {
+        calls.push(`${from.name}-${to.name}`)
+        return { path: [[100.1, 30.1], [100.15, 30.15], [100.2, 30.2]], distance: 15000, duration: 900 }
+      },
+    })
+    expect(secondRun).toBe(true)
+    expect(calls).toEqual(['B-C'])
+    expect(t.routeJob).toMatchObject({ state: 'success', done: 2, failed: 0, total: 2 })
+  })
+
+  it('已有路线若终点偏离图钉会重新计算而不是被错误跳过', async () => {
+    const t = useTripStore()
+    t.replacePlan({
+      days: [{
+        dayNumber: 1,
+        overnight: 'B',
+        overnightPlaceId: 'b',
+        waypoints: [
+          { placeId: 'a', name: 'A', lng: 100, lat: 30 },
+          { placeId: 'b', name: 'B', lng: 100.1, lat: 30.1 },
+        ],
+        segments: [{
+          fromName: 'A', toName: 'B',
+          path: [[101, 31], [101.1, 31.1], [101.2, 31.2]],
+          distance: 10000, duration: 600,
+        }],
+      }],
+    })
+    let calls = 0
+    await t.runRouteCalculation({
+      planRoute: async () => {
+        calls += 1
+        return { path: [[100, 30], [100.05, 30.05], [100.1, 30.1]], distance: 15000, duration: 900 }
+      },
+    })
+    expect(calls).toBe(1)
+    expect(t.routeJob.state).toBe('success')
   })
 })
 
