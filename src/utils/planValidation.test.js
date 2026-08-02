@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validatePlan } from './planValidation'
+import { validatePlan, validatePlanForGeneration } from './planValidation'
 
 const wp = (placeId, name, lng, lat, extra = {}) => ({
   placeId,
@@ -153,5 +153,15 @@ describe('validatePlan', () => {
     expect(() => validatePlan(plan)).not.toThrow()
     expect(issueCodes(plan)).toContain('EMPTY_DAY')
     expect(issueCodes(plan)).not.toContain('DAY_BOUNDARY_MISMATCH')
+  })
+})
+
+describe('validatePlanForGeneration', () => {
+  it('在内容生成前同时检查规划结构和真实驾驶路线', () => {
+    const plan = clonePlan()
+    plan.days[0].segments = null
+    plan.days[1].segments = null
+    const codes = validatePlanForGeneration(plan).map((issue) => issue.code)
+    expect(codes).toContain('ROUTE_DAY_INCOMPLETE')
   })
 })

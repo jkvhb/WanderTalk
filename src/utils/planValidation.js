@@ -3,6 +3,7 @@ import {
   normalizePlaceName,
   samePlace,
 } from './placeIdentity'
+import { validateCalculatedRoutes } from './routeQuality'
 
 const unnamedPlace = '未命名地点'
 const placeName = (waypoint) =>
@@ -185,4 +186,9 @@ export function validatePlan(plan) {
   })
 
   return issues
+}
+
+// 内容、配图和视频生成前使用：除节点结构外，还要求每一段真实驾驶路线完整可信。
+export function validatePlanForGeneration(plan) {
+  return [...validatePlan(plan), ...validateCalculatedRoutes(plan)]
 }
