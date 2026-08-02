@@ -90,6 +90,8 @@ describe('studio store', () => {
       searchPixabayImages.mockImplementation(async (q) => [
         { id: 'hit:' + q, tags: 'kw:' + q.slice(2) + ', ' + q, webformatURL: 'w', largeImageURL: 'l:' + q, pageURL: 'p:' + q },
       ])
+      searchCommonsImages.mockReset()
+      searchCommonsImages.mockResolvedValue([])
       fetchPixabayImageBlob.mockClear()
     })
 
@@ -175,6 +177,31 @@ describe('studio store', () => {
       expect(studio.imageJob.done).toBe(0)
       expect(studio.imageJob.skipped).toBe(1)
     })
+
+    it('备用 Commons 搜索不可用时跳过节点而不是中断整批配图', async () => {
+      const trip = useTripStore()
+      trip.replacePlan({
+        days: [{
+          dayNumber: 1,
+          title: '测试',
+          waypoints: [{ name: '尼玛贡神山观景台', lng: 100.7, lat: 30.1, narration: '测试讲解', images: [] }],
+        }],
+      })
+      generateImageQueries.mockResolvedValueOnce([
+        { index: 0, queries: ['尼玛贡神山'], keywords: ['尼玛贡神山'] },
+      ])
+      searchPixabayImages.mockResolvedValueOnce([])
+      searchCommonsImages.mockRejectedValueOnce(new Error('fetch failed'))
+
+      const studio = useStudioStore()
+      await expect(studio.runImageAutoFillAll('sk')).resolves.not.toThrow()
+
+      expect(studio.imageJob.error).toBe('')
+      expect(studio.imageJob.skipped).toBe(1)
+      expect(studio.imageJob.finishedAt).toBeTruthy()
+      expect(trip.plan.days[0].waypoints[0].images).toEqual([])
+    })
+
     it('imageQuery 报错时进入 error 状态，不抛出', async () => {
       generateImageQueries.mockRejectedValueOnce(new Error('生成检索词失败'))
       const trip = useTripStore()

@@ -141,9 +141,14 @@ export const useStudioStore = defineStore('studio', () => {
             const exactPixabay = pickImages(hits, [query], IMAGES_PER_NODE, MATCH_THRESHOLD)
             picked = exactPixabay.length ? pickImages(hits, evidence, IMAGES_PER_NODE, MATCH_THRESHOLD) : []
             if (!picked.length) {
-              const commons = await searchCommonsImages(query)
-              const exactCommons = pickImages(commons, [query], IMAGES_PER_NODE, MATCH_THRESHOLD)
-              picked = exactCommons.length ? pickImages(commons, evidence, IMAGES_PER_NODE, MATCH_THRESHOLD) : []
+              try {
+                const commons = await searchCommonsImages(query)
+                const exactCommons = pickImages(commons, [query], IMAGES_PER_NODE, MATCH_THRESHOLD)
+                picked = exactCommons.length ? pickImages(commons, evidence, IMAGES_PER_NODE, MATCH_THRESHOLD) : []
+              } catch {
+                // Commons 是备用来源；单次不可用时继续尝试下一个检索词。
+                picked = []
+              }
             }
             if (picked.length) break
           }
