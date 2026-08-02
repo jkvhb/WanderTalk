@@ -35,6 +35,63 @@ describe('trip store', () => {
     t.loadPreset318()
     expect(t.plan.days[0].waypoints[0].name).toContain('成都')
   })
+
+  it('从零加载权威底稿，只解析两个缺失地点且不继承生成产物', async () => {
+    const t = useTripStore()
+    t.loadPreset318()
+    t.setNarration(1, 0, '旧旁白')
+    t.addImage(1, 0, 'old-image')
+    t.setChoreography(1, 0, { config: { tempo: 'lively' }, narrationHash: 'old' })
+    const requests = []
+
+    const ok = await t.loadAuthoritative318({
+      resolvePlace: async (request, spec) => {
+        requests.push(request.query)
+        return {
+          placeId: spec.placeId,
+          name: spec.name,
+          lng: spec.placeId === 'yingguanzhai-junction' ? 101.6 : 100.75,
+          lat: spec.placeId === 'yingguanzhai-junction' ? 30.05 : 30.1,
+          source: { provider: 'test' },
+        }
+      },
+    })
+
+    expect(ok).toBe(true)
+    expect(requests).toEqual(['营官寨三岔路口', '尼玛贡神山大型观景台旅游服务区'])
+    expect(t.authorityJob).toMatchObject({ state: 'ready', done: 2, total: 2, errors: [] })
+    expect(new Set(t.plan.days.flatMap((day) => day.waypoints.map((point) => point.placeId))).size).toBe(46)
+    for (const point of t.plan.days.flatMap((day) => day.waypoints)) {
+      expect(point.narration).toBe('')
+      expect(point.prevNarration).toBe('')
+      expect(point.images).toEqual([])
+      expect(point.choreography).toBeNull()
+      expect(point.note).toBe('')
+    }
+    expect(t.plan.days.every((day) => day.segments === null)).toBe(true)
+  })
+
+  it('地点只解析成功一部分时显示部分失败且不生成残缺计划', async () => {
+    const t = useTripStore()
+    const ok = await t.loadAuthoritative318({
+      resolvePlace: async (request, spec) => {
+        if (spec.placeId === 'nimagong-viewpoint') throw new Error('找到多个可能地点，需要人工确认')
+        return { placeId: spec.placeId, name: spec.name, lng: 101.6, lat: 30.05 }
+      },
+    })
+
+    expect(ok).toBe(false)
+    expect(t.plan).toBeNull()
+    expect(t.authorityJob).toMatchObject({ state: 'partial', done: 1, total: 2 })
+    expect(t.authorityJob.errors[0]).toMatchObject({ placeId: 'nimagong-viewpoint' })
+  })
+
+  it('所有待解析地点失败时显示失败而不是成功', async () => {
+    const t = useTripStore()
+    await t.loadAuthoritative318({ resolvePlace: async () => { throw new Error('检索不可用') } })
+    expect(t.plan).toBeNull()
+    expect(t.authorityJob).toMatchObject({ state: 'failed', done: 0, total: 2 })
+  })
 })
 
 describe('trip store 编辑', () => {

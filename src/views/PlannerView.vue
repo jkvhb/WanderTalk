@@ -6,6 +6,7 @@ import { useTripStore } from '../stores/trip'
 import { loadAmap } from '../composables/useAmap'
 import { planDrivingRoute } from '../composables/useDriving'
 import { searchNearbyPoi } from '../composables/useNearby'
+import { resolvePlaceByText } from '../composables/usePlaceResolve'
 import { wgs84ToGcj02, wgs84PathToGcj02, gcj02ToWgs84 } from '../utils/coords'
 import { shouldForceRefreshRoutes } from '../utils/routePlanningState'
 import { ROUTE_DAY_COLORS, routeDayColor } from '../utils/routeDayVisual'
@@ -44,6 +45,7 @@ const clickError = ref('')
 const mapPopup = ref(null) // { candidate, x, y, initialDay } | null
 const importFileEl = ref(null)
 const importError = ref('')
+const authorityUiError = ref('')
 
 // POI 坐标来自高德搜索（GCJ-02），入库前转 WGS-84
 function addPoiToRoute(poi) {
@@ -249,8 +251,15 @@ function drawPlan() {
   }
 }
 
-function loadPreset() {
-  trip.loadPreset318()
+async function loadAuthority() {
+  authorityUiError.value = ''
+  if (!AMapRef) {
+    authorityUiError.value = '地图服务尚未就绪，无法确认两个新增地点'
+    return
+  }
+  await trip.loadAuthoritative318({
+    resolvePlace: (request) => resolvePlaceByText(AMapRef, request),
+  })
 }
 
 // 逐天逐段计算驾车路线；已算过的天跳过；失败保留已算结果，可重试
@@ -317,17 +326,33 @@ function flyTo(poi) {
         <div class="flex items-center justify-between">
           <h2 class="font-semibold">路线</h2>
           <button
-            @click="loadPreset"
+            @click="loadAuthority"
+            :disabled="trip.authorityJob.state === 'resolving'"
             class="text-xs px-2.5 py-1 rounded-md bg-accent/10 text-accent hover:bg-accent/20 transition"
-          >加载 318 预设</button>
+          >加载权威 318 底稿（从零生成）</button>
         </div>
+        <p v-if="trip.authorityJob.state === 'resolving'" class="text-xs text-blue-600">
+          正在确认地点 {{ trip.authorityJob.done }}/{{ trip.authorityJob.total }}
+        </p>
+        <p v-else-if="trip.authorityJob.state === 'ready'" class="text-xs text-green-600">
+          ✓ 已确认并编排 46 个主线节点
+        </p>
+        <div v-else-if="trip.authorityJob.state === 'partial'" class="text-xs text-amber-600 space-y-1">
+          <p>◐ 已确认 {{ trip.authorityJob.done }}/{{ trip.authorityJob.total }} 个新增地点，仍需人工确认</p>
+          <p v-for="item in trip.authorityJob.errors" :key="item.placeId">{{ item.name }}：{{ item.message }}</p>
+        </div>
+        <div v-else-if="trip.authorityJob.state === 'failed'" class="text-xs text-red-500 space-y-1">
+          <p>✕ 权威底稿加载失败</p>
+          <p v-for="item in trip.authorityJob.errors" :key="item.placeId">{{ item.name }}：{{ item.message }}</p>
+        </div>
+        <p v-if="authorityUiError" class="text-xs text-red-500">✕ {{ authorityUiError }}</p>
         <div v-if="trip.plan" class="space-y-2">
           <p class="text-xs text-gray-500">{{ trip.plan.name }}</p>
           <button
             @click="calcRoutes"
             :disabled="calculating"
             class="w-full py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
-          >{{ calculating ? '计算中…' : shouldForceRefreshRoutes(trip.plan.days) ? '重新计算驾车路线' : '计算驾车路线' }}</button>
+          >{{ calculating ? '计算中…' : shouldForceRefreshRoutes(trip.plan.days) ? '计算全部真实驾驶路线' : '路线已计算，可重新计算' }}</button>
           <p v-if="trip.routeNotice" class="text-xs text-amber-600">{{ trip.routeNotice }}</p>
           <p v-if="calcError" class="text-xs text-red-500">{{ calcError }}</p>
           <DayCard
@@ -360,7 +385,7 @@ function flyTo(poi) {
           </div>
           <p v-if="importError" class="text-xs text-red-500">{{ importError }}</p>
         </div>
-        <p v-else class="text-sm text-gray-400">点击「加载 318 预设」开始。</p>
+        <p v-else-if="trip.authorityJob.state === 'idle'" class="text-sm text-gray-400">点击「加载权威 318 底稿」开始。</p>
       </template>
 
       <!-- 搜索标签 -->

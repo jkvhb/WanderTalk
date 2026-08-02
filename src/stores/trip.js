@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { preset318 } from '../data/preset318'
+import { authoritative318 } from '../data/authoritative318'
 import { preset318Narration } from '../data/preset318Narration'
 import { isContentNode } from '../utils/contentNode'
+import { compileAuthoritative318Plan } from '../utils/authoritative318Plan'
 import { migrateFixed318Plan } from '../utils/fixed318Migration'
 
 // 单天结构归一化：保证 dayNumber 连续、路线元数据完整、segments 字段存在。
@@ -68,6 +70,7 @@ function normalizePlan(raw) {
 export const useTripStore = defineStore('trip', () => {
   const plan = ref(null)
   const routeNotice = ref('')
+  const authorityJob = ref({ state: 'idle', done: 0, total: 0, errors: [] })
 
   const dayCount = computed(() => plan.value?.days.length ?? 0)
 
@@ -85,6 +88,69 @@ export const useTripStore = defineStore('trip', () => {
     routeNotice.value = ''
   }
 
+  async function loadAuthoritative318({ resolvePlace }) {
+    plan.value = null
+    routeNotice.value = ''
+    const catalog = new Map(
+      preset318.days.flatMap((day) => day.waypoints).map((point) => [point.placeId, cloneJsonValue(point)]),
+    )
+    const pending = authoritative318.days
+      .flatMap((day) => day.nodes)
+      .filter((spec) => !catalog.has(spec.placeId))
+
+    authorityJob.value = { state: 'resolving', done: 0, total: pending.length, errors: [] }
+
+    for (const spec of pending) {
+      try {
+        if (typeof resolvePlace !== 'function') throw new Error('地点解析服务不可用')
+        const resolved = await resolvePlace(spec.resolve, spec)
+        catalog.set(spec.placeId, {
+          ...resolved,
+          placeId: spec.placeId,
+          name: spec.name,
+        })
+        authorityJob.value.done += 1
+      } catch (error) {
+        authorityJob.value.errors.push({
+          placeId: spec.placeId,
+          name: spec.name,
+          message: error?.message || '地点解析失败',
+        })
+      }
+    }
+
+    if (authorityJob.value.errors.length) {
+      authorityJob.value.state = authorityJob.value.done > 0 ? 'partial' : 'failed'
+      return false
+    }
+
+    const result = compileAuthoritative318Plan({ authority: authoritative318, catalog })
+    if (!result.plan) {
+      authorityJob.value.errors = result.issues.map((entry) => ({
+        placeId: entry.placeId,
+        name: entry.placeId,
+        message: entry.message,
+      }))
+      authorityJob.value.state = authorityJob.value.done > 0 ? 'partial' : 'failed'
+      return false
+    }
+
+    for (const day of result.plan.days) {
+      day.segments = null
+      for (const point of day.waypoints) {
+        point.narration = ''
+        point.prevNarration = ''
+        point.note = ''
+        point.images = []
+        point.choreography = null
+      }
+    }
+    plan.value = normalizePlan(result.plan)
+    authorityJob.value.state = 'ready'
+    routeNotice.value = '权威底稿已加载，请计算全部真实驾驶路线'
+    return true
+  }
+
   function newEmptyPlan() {
     plan.value = normalizePlan({ name: '我的路书', days: [{}] })
   }
@@ -100,6 +166,7 @@ export const useTripStore = defineStore('trip', () => {
   function clear() {
     plan.value = null
     routeNotice.value = ''
+    authorityJob.value = { state: 'idle', done: 0, total: 0, errors: [] }
   }
 
   // —— 天编辑 ——
@@ -270,9 +337,11 @@ export const useTripStore = defineStore('trip', () => {
   return {
     plan,
     routeNotice,
+    authorityJob,
     dayCount,
     allWaypoints,
     loadPreset318,
+    loadAuthoritative318,
     newEmptyPlan,
     replacePlan,
     clear,
