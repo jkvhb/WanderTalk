@@ -36,34 +36,24 @@ describe('trip store', () => {
     expect(t.plan.days[0].waypoints[0].name).toContain('成都')
   })
 
-  it('从零加载权威底稿，只解析两个缺失地点且不继承生成产物', async () => {
+  it('从零加载已核验权威底稿且不继承生成产物', async () => {
     const t = useTripStore()
     t.loadPreset318()
     t.setNarration(1, 0, '旧旁白')
     t.addImage(1, 0, 'old-image')
     t.setChoreography(1, 0, { config: { tempo: 'lively' }, narrationHash: 'old' })
-    const requests = []
+    let resolverCalls = 0
 
     const ok = await t.loadAuthoritative318({
       resolvePlace: async (request, spec) => {
-        requests.push(request.queries)
-        return {
-          placeId: spec.placeId,
-          name: spec.name,
-          lng: 100.75,
-          lat: 30.1,
-          source: { provider: 'test' },
-        }
+        resolverCalls += 1
+        throw new Error(`不应再检索 ${spec.placeId}`)
       },
     })
 
     expect(ok).toBe(true)
-    expect(requests).toEqual([[
-      '尼玛贡神山大型观景台旅游服务区',
-      '尼玛贡神山观景台',
-      '尼玛贡神山',
-    ]])
-    expect(t.authorityJob).toMatchObject({ state: 'ready', done: 1, total: 1, errors: [] })
+    expect(resolverCalls).toBe(0)
+    expect(t.authorityJob).toMatchObject({ state: 'ready', done: 0, total: 0, errors: [] })
     expect(new Set(t.plan.days.flatMap((day) => day.waypoints.map((point) => point.placeId))).size).toBe(46)
     for (const point of t.plan.days.flatMap((day) => day.waypoints)) {
       expect(point.narration).toBe('')
@@ -75,26 +65,6 @@ describe('trip store', () => {
     expect(t.plan.days.every((day) => day.segments === null)).toBe(true)
   })
 
-  it('唯一待检索地点失败时显示失败且不生成残缺计划', async () => {
-    const t = useTripStore()
-    const ok = await t.loadAuthoritative318({
-      resolvePlace: async (request, spec) => {
-        throw new Error('找到多个可能地点，需要人工确认')
-      },
-    })
-
-    expect(ok).toBe(false)
-    expect(t.plan).toBeNull()
-    expect(t.authorityJob).toMatchObject({ state: 'failed', done: 0, total: 1 })
-    expect(t.authorityJob.errors[0]).toMatchObject({ placeId: 'nimagong-viewpoint' })
-  })
-
-  it('所有待解析地点失败时显示失败而不是成功', async () => {
-    const t = useTripStore()
-    await t.loadAuthoritative318({ resolvePlace: async () => { throw new Error('检索不可用') } })
-    expect(t.plan).toBeNull()
-    expect(t.authorityJob).toMatchObject({ state: 'failed', done: 0, total: 1 })
-  })
 })
 
 describe('trip store 编辑', () => {

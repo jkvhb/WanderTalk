@@ -21,12 +21,12 @@ describe('authoritative318', () => {
     }
   })
 
-  it('把无名路口保存为道路交叉点，只留下尼玛贡神山需要检索', () => {
+  it('把无名路口和尼玛贡神山都保存为已核验地点', () => {
     const unresolved = authoritative318.days
       .flatMap((day) => day.nodes)
       .filter((node) => node.resolve)
       .map((node) => node.placeId)
-    expect(unresolved).toEqual(['nimagong-viewpoint'])
+    expect(unresolved).toEqual([])
     const junction = authoritative318.days[1].nodes.find((node) => node.placeId === 'yingguanzhai-junction')
     expect(junction).toMatchObject({
       name: 'G318/G248交叉口（营官村）',
@@ -35,6 +35,18 @@ describe('authoritative318', () => {
         lat: 30.038074,
         coordinateSystem: 'WGS-84',
         source: { provider: 'openstreetmap-road-intersection' },
+      },
+    })
+    const nimagong = authoritative318.days[2].nodes.find((node) => node.placeId === 'nimagong-viewpoint')
+    expect(nimagong).toMatchObject({
+      location: {
+        lng: 100.7384845894722,
+        lat: 30.08319221083286,
+        coordinateSystem: 'WGS-84',
+        source: {
+          provider: 'amap-web-service',
+          resultName: '尼玛贡神山大型观景台旅游服务区',
+        },
       },
     })
   })

@@ -10,21 +10,18 @@ function catalogFromPreset() {
   )
 }
 
-const resolvedMissing = {
-  'nimagong-viewpoint': { placeId: 'nimagong-viewpoint', name: '尼玛贡神山观景台', lng: 100.75, lat: 30.1, address: '理塘县' },
-}
-
 describe('compileAuthoritative318Plan', () => {
   it('存在未解析主线地点时阻止生成路线计划', () => {
-    const result = compileAuthoritative318Plan({ authority: authoritative318, catalog: catalogFromPreset() })
+    const catalog = catalogFromPreset()
+    catalog.delete('kazila-pass')
+    const result = compileAuthoritative318Plan({ authority: authoritative318, catalog })
     expect(result.plan).toBeNull()
-    expect(result.issues.map((issue) => issue.placeId)).toEqual(['nimagong-viewpoint'])
+    expect(result.issues.map((issue) => issue.placeId)).toEqual(['kazila-pass'])
     expect(result.issues[0]).toMatchObject({ code: 'UNRESOLVED_MAIN_PLACE', severity: 'error' })
   })
 
   it('复用前一天住宿地作为次日起点但不重复讲解', () => {
     const catalog = catalogFromPreset()
-    Object.values(resolvedMissing).forEach((place) => catalog.set(place.placeId, place))
     const result = compileAuthoritative318Plan({ authority: authoritative318, catalog })
 
     expect(result.issues).toEqual([])
@@ -39,7 +36,6 @@ describe('compileAuthoritative318Plan', () => {
 
   it('生成九天、46 个唯一主线地点和 45 个待计算路段', () => {
     const catalog = catalogFromPreset()
-    Object.values(resolvedMissing).forEach((place) => catalog.set(place.placeId, place))
     const { plan } = compileAuthoritative318Plan({ authority: authoritative318, catalog })
     const ids = plan.days.flatMap((day) => day.waypoints.map((point) => point.placeId))
 
@@ -52,7 +48,6 @@ describe('compileAuthoritative318Plan', () => {
 
   it('把底稿字段附到每个讲解节点并保持可选支线在主线外', () => {
     const catalog = catalogFromPreset()
-    Object.values(resolvedMissing).forEach((place) => catalog.set(place.placeId, place))
     const { plan } = compileAuthoritative318Plan({ authority: authoritative318, catalog })
     const yingguanzhai = plan.days[1].waypoints.find((point) => point.placeId === 'yingguanzhai-junction')
 

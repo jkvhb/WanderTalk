@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { preset318 } from '../data/preset318'
 import { migrateFixed318Plan } from './fixed318Migration'
 
 function legacyFixed318() {
@@ -39,6 +40,45 @@ function legacyFixed318() {
 }
 
 describe('migrateFixed318Plan', () => {
+  it('补入权威底稿新增节点、清空受影响路线并保留原节点内容', () => {
+    const source = structuredClone(preset318)
+    source.routeDataVersion = '2026-07-31'
+    source.days[1].waypoints = source.days[1].waypoints.filter(
+      (point) => point.placeId !== 'yingguanzhai-junction',
+    )
+    source.days[2].waypoints = source.days[2].waypoints.filter(
+      (point) => point.placeId !== 'nimagong-viewpoint',
+    )
+    const xinduqiao = source.days[1].waypoints.find((point) => point.placeId === 'xinduqiao')
+    xinduqiao.narration = '保留的新都桥旁白'
+    xinduqiao.images = ['xinduqiao-user-image']
+    source.days[1].segments = [{ path: [[101.8, 30.07], [101.49, 30.04]] }]
+    source.days[2].segments = [{ path: [[101.01, 30.03], [99.1, 30.0]] }]
+
+    const result = migrateFixed318Plan(source)
+    const junction = result.plan.days[1].waypoints.find(
+      (point) => point.placeId === 'yingguanzhai-junction',
+    )
+    const nimagong = result.plan.days[2].waypoints.find(
+      (point) => point.placeId === 'nimagong-viewpoint',
+    )
+    const keptXinduqiao = result.plan.days[1].waypoints.find(
+      (point) => point.placeId === 'xinduqiao',
+    )
+
+    expect(result.migrated).toBe(true)
+    expect(result.plan.routeDataVersion).toBe('2026-08-02-v1')
+    expect(result.changedDays).toEqual(expect.arrayContaining([2, 3]))
+    expect(result.plan.days[1].segments).toBeNull()
+    expect(result.plan.days[2].segments).toBeNull()
+    expect(junction).toMatchObject({ name: 'G318/G248交叉口（营官村）', narration: '', images: [] })
+    expect(nimagong).toMatchObject({ name: '尼玛贡神山观景台', narration: '', images: [] })
+    expect(keptXinduqiao).toMatchObject({
+      narration: '保留的新都桥旁白',
+      images: ['xinduqiao-user-image'],
+    })
+  })
+
   it('把旧版相邻的海子山与姊妹湖合并到G318主线节点，并保留两边内容', () => {
     const source = legacyFixed318()
     source.presetId = 'fixed-318'
@@ -70,7 +110,7 @@ describe('migrateFixed318Plan', () => {
     )
 
     expect(result.migrated).toBe(true)
-    expect(result.plan.routeDataVersion).toBe('2026-07-31')
+    expect(result.plan.routeDataVersion).toBe('2026-08-02-v1')
     expect(result.changedDays).toContain(1)
     expect(result.plan.days[0].segments).toBeNull()
     expect(merged).toHaveLength(1)

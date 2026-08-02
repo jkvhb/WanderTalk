@@ -1,7 +1,7 @@
 import { preset318 } from '../data/preset318'
 
 export const FIXED_318_PRESET_ID = 'fixed-318'
-export const FIXED_318_ROUTE_DATA_VERSION = '2026-07-31'
+export const FIXED_318_ROUTE_DATA_VERSION = '2026-08-02-v1'
 
 const ANCHOR_NAMES = [
   '成都',
@@ -92,6 +92,8 @@ export function migrateFixed318Plan(plan) {
 
   const migrated = cloneData(plan)
   const changedDays = []
+  const usesCanonicalDayStructure = plan.presetId === FIXED_318_PRESET_ID
+    && (plan.days || []).length === preset318.days.length
   for (const day of migrated.days || []) {
     let invalidatesSegments = false
     const normalizedPoints = []
@@ -133,6 +135,35 @@ export function migrateFixed318Plan(plan) {
     if (invalidatesSegments) {
       day.segments = null
       changedDays.push(day.dayNumber)
+    }
+  }
+
+  if (usesCanonicalDayStructure) {
+    for (const day of migrated.days) {
+      const canonicalDay = preset318.days.find((candidate) => candidate.dayNumber === day.dayNumber)
+      if (!canonicalDay) continue
+      const existingById = new Map(day.waypoints.map((point) => [point.placeId, point]))
+      const beforeIds = day.waypoints.map((point) => point.placeId)
+      day.waypoints = canonicalDay.waypoints.map((canonical) => {
+        const existing = existingById.get(canonical.placeId)
+        if (existing) return existing
+        return {
+          ...cloneData(canonical),
+          narration: '',
+          note: '',
+          images: [],
+          choreography: null,
+          audio: null,
+        }
+      })
+      day.overnight = canonicalDay.overnight
+      day.overnightPlaceId = canonicalDay.overnightPlaceId
+      day.alternatives = cloneData(canonicalDay.alternatives || [])
+      const afterIds = day.waypoints.map((point) => point.placeId)
+      if (beforeIds.join('|') !== afterIds.join('|')) {
+        day.segments = null
+        if (!changedDays.includes(day.dayNumber)) changedDays.push(day.dayNumber)
+      }
     }
   }
   migrated.presetId = FIXED_318_PRESET_ID

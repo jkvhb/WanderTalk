@@ -31,8 +31,8 @@ describe('preset318', () => {
   it('follows the approved nine-day main-route identity sequence', () => {
     expect(preset318.days.map((day) => day.waypoints.map((point) => point.placeId))).toEqual([
       ['chengdu', 'yaan', 'tianquan-service', 'erlangshan-tunnel', 'luding', 'kangding'],
-      ['kangding', 'zheduo-pass', 'xinduqiao', 'yajiang'],
-      ['yajiang', 'tianlu-18-bends', 'jianziwan-pass', 'kazila-pass', 'litang', 'maoya-grassland', 'sister-lakes', 'batang'],
+      ['kangding', 'zheduo-pass', 'yingguanzhai-junction', 'xinduqiao', 'yajiang'],
+      ['yajiang', 'tianlu-18-bends', 'jianziwan-pass', 'nimagong-viewpoint', 'kazila-pass', 'litang', 'maoya-grassland', 'sister-lakes', 'batang'],
       ['batang', 'jinsha-river-bridge', 'zongbala-pass', 'mangkang', 'lawu-pass', 'rumei', 'jueba-pass', 'dongda-pass', 'zuogong'],
       ['zuogong', 'bangda', 'yela-pass', 'nujiang-72', 'nujiang-bridge', 'basu'],
       ['basu', 'anjiula-pass', 'ranwu-lake', 'midui-glacier', 'bomi'],
@@ -51,12 +51,15 @@ describe('preset318', () => {
     expect(showcasePoints.filter((point) => point.placeId === 'midui-glacier')).toHaveLength(1)
   })
 
-  it('keeps an auditable AMap result and the normalized coordinate for each main point', () => {
+  it('keeps auditable normalized coordinates for every main point', () => {
     for (const point of preset318.days.flatMap((day) => day.waypoints)) {
       expect(point.placeId).toBeTruthy()
-      expect(point.source).toMatchObject({ provider: 'amap-web-service', coordinateSystem: 'WGS-84' })
-      expect(Number.isFinite(point.source.gcj02?.lng)).toBe(true)
-      expect(Number.isFinite(point.source.gcj02?.lat)).toBe(true)
+      expect(['amap-web-service', 'openstreetmap-road-intersection']).toContain(point.source?.provider)
+      expect(point.source?.coordinateSystem).toBe('WGS-84')
+      if (point.source.provider === 'amap-web-service') {
+        expect(Number.isFinite(point.source.gcj02?.lng)).toBe(true)
+        expect(Number.isFinite(point.source.gcj02?.lat)).toBe(true)
+      }
     }
   })
 })

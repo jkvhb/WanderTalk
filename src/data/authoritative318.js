@@ -15,16 +15,7 @@ const day = (dayNumber, overnightPlaceId, nodes) => Object.freeze({
   nodes: Object.freeze(nodes),
 })
 
-const unresolved = {
-  'nimagong-viewpoint': {
-    resolve: Object.freeze({
-      queries: Object.freeze(['尼玛贡神山大型观景台旅游服务区', '尼玛贡神山观景台', '尼玛贡神山']),
-      city: '甘孜藏族自治州',
-      aliases: Object.freeze(['尼玛贡神山']),
-      regionHints: Object.freeze(['理塘', '雅江', '甘孜']),
-    }),
-  },
-}
+const unresolved = {}
 
 const verified = {
   'yingguanzhai-junction': {
@@ -41,6 +32,25 @@ const verified = {
         nodeId: '634137812',
         roadRefs: Object.freeze(['G318', 'G248']),
         note: '路书称“营官寨三岔路口”；该处是道路交叉点，不是独立 POI。G248 为旧 S215/营官—九龙公路。',
+      }),
+    }),
+  },
+  'nimagong-viewpoint': {
+    location: Object.freeze({
+      placeId: 'nimagong-viewpoint',
+      name: '尼玛贡神山观景台',
+      address: '318国道呷柯乡日里村（雅江县）',
+      lng: 100.7384845894722,
+      lat: 30.08319221083286,
+      coordinateSystem: 'WGS-84',
+      source: Object.freeze({
+        provider: 'amap-web-service',
+        coordinateSystem: 'WGS-84',
+        checkedAt: '2026-08-02',
+        query: '尼玛贡神山大型观景台旅游服务区',
+        resultName: '尼玛贡神山大型观景台旅游服务区',
+        address: '318国道呷柯乡日里村（雅江县）',
+        gcj02: Object.freeze({ lng: 100.739831, lat: 30.080460 }),
       }),
     }),
   },
