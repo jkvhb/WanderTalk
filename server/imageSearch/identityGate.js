@@ -6,6 +6,7 @@ const GENERIC_CLASS_TERMS = new Set([
 const SAFE_NAME_SUFFIXES = [
   '景区', '风景区', '实景', '照片', '图片', '航拍', '夜景', '风光', '游记', '攻略',
 ]
+const SAFE_NAME_PREFIXES = ['航拍', '实拍', '探访', '走进']
 
 function normalizeText(value) {
   if (typeof value !== 'string') return ''
@@ -45,7 +46,7 @@ function containsTerm(text, term) {
 
 function containsRoadRef(text, roadRef) {
   if (typeof roadRef !== 'string' || !roadRef.trim()) return false
-  const escaped = roadRef.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const escaped = roadRef.trim().normalize('NFKC').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(`(?:^|[^a-z0-9])${escaped}(?=$|[^a-z0-9])`, 'iu').test(text.normalize('NFKC'))
 }
 
@@ -53,21 +54,37 @@ function fieldTokens(field) {
   return field.split(/[\p{P}\p{S}\s]+/u).map(normalizeText).filter(Boolean)
 }
 
+function hasOnlySafeSuffixes(value) {
+  const suffixes = SAFE_NAME_SUFFIXES.map(normalizeText).sort((first, second) => second.length - first.length)
+  let remaining = value
+  while (remaining) {
+    const suffix = suffixes.find((candidate) => remaining.startsWith(candidate))
+    if (!suffix) return false
+    remaining = remaining.slice(suffix.length)
+  }
+  return true
+}
+
+function isAcceptedCjkPhrase(phrase, normalizedName) {
+  const candidates = [phrase]
+  for (const prefix of SAFE_NAME_PREFIXES.map(normalizeText)) {
+    if (phrase.startsWith(prefix)) candidates.push(phrase.slice(prefix.length))
+  }
+
+  return candidates.some((candidate) => candidate.startsWith(normalizedName)
+    && hasOnlySafeSuffixes(candidate.slice(normalizedName.length)))
+}
+
 function containsCjkName(fields, name) {
   const normalizedName = normalizeText(name)
-  const acceptedNames = new Set([
-    normalizedName,
-    ...SAFE_NAME_SUFFIXES.map((suffix) => normalizedName + normalizeText(suffix)),
-  ])
-  const maxLength = Math.max(...[...acceptedNames].map((accepted) => accepted.length))
 
   return fields.some((field) => {
     const tokens = fieldTokens(field)
     return tokens.some((_, start) => {
       let phrase = ''
-      for (let end = start; end < tokens.length && phrase.length <= maxLength; end += 1) {
+      for (let end = start; end < tokens.length; end += 1) {
         phrase += tokens[end]
-        if (acceptedNames.has(phrase)) return true
+        if (isAcceptedCjkPhrase(phrase, normalizedName)) return true
       }
       return false
     })
@@ -88,7 +105,7 @@ function containsAsciiName(fields, name) {
   return fields.some((field) => pattern.test(field.normalize('NFKC')))
 }
 
-function hasNameEvidence(place, text, fields) {
+function hasNameEvidence(place, fields) {
   const canonicalName = place?.canonicalName
   const normalizedCanonical = normalizeText(canonicalName)
   if (normalizedCanonical
@@ -110,11 +127,31 @@ function hasNameEvidence(place, text, fields) {
 }
 
 function hasContextEvidence(place, text) {
+  const localAdminTerms = stringList(place?.adminPath).filter((term) => {
+    const trimmed = term.trim()
+    return normalizeText(trimmed) !== normalizeText('中国')
+      && !/(?:省|自治区|自治州)$/u.test(trimmed)
+      && /(?:市|县|区)$/u.test(trimmed)
+  })
+
   return [
-    ...stringList(place?.adminPath),
+    ...localAdminTerms,
     ...stringList(place?.nearbyLandmarks),
   ].some((term) => containsTerm(text, term))
     || stringList(place?.roadRefs).some((roadRef) => containsRoadRef(text, roadRef))
+}
+
+function withoutConfiguredNames(place, fields) {
+  const variants = [place?.canonicalName, ...stringList(place?.aliases)]
+    .map(normalizeText)
+    .filter(Boolean)
+    .filter((variant, index, all) => all.indexOf(variant) === index)
+    .sort((first, second) => second.length - first.length)
+
+  return fields.map((field) => variants.reduce(
+    (remaining, variant) => remaining.replaceAll(variant, ''),
+    normalizeText(field),
+  )).join(' ')
 }
 
 function validCoordinates(value) {
@@ -147,10 +184,8 @@ export function evaluatePlaceIdentity(place, candidate) {
     return { status: 'rejected', reason: 'negative-evidence', evidence: [] }
   }
 
-  const matchedName = hasNameEvidence(place, text, fields)
-  const textWithoutName = matchedName
-    ? normalizeText(text).replaceAll(normalizeText(matchedName), '')
-    : text
+  const matchedName = hasNameEvidence(place, fields)
+  const textWithoutName = withoutConfiguredNames(place, fields)
   const context = hasContextEvidence(place, textWithoutName)
   const closeCoordinates = validCoordinates(place?.coordinates)
     && validCoordinates(candidate?.coordinates)
@@ -210,7 +245,7 @@ function queryFrom(...terms) {
 
 export function buildPlaceQueries(place) {
   const canonicalName = typeof place?.canonicalName === 'string' ? place.canonicalName.trim() : ''
-  if (!canonicalName) return []
+  if (!canonicalName || GENERIC_CLASS_TERMS.has(normalizeText(canonicalName))) return []
 
   const regions = stringList(place?.adminPath).reduce((result, term) => {
     const trimmed = term.trim()
@@ -231,21 +266,26 @@ export function buildPlaceQueries(place) {
   const nearby = firstDistinct(place?.nearbyLandmarks, [canonicalName])
   const roadRef = firstDistinct(place?.roadRefs)
   const primaryRegion = regions[0]
-  const canonicalRegionQueries = regions.length > 0
-    ? regions.map((region) => queryFrom(canonicalName, region))
-    : [queryFrom(canonicalName)]
+  const canonicalRegionQueries = regions.map((region) => queryFrom(canonicalName, region))
   const proposed = [
     ...canonicalRegionQueries,
-    ...(aliases[0] ? [queryFrom(aliases[0], primaryRegion)] : []),
-    queryFrom(canonicalName, nearby),
-    queryFrom(canonicalName, roadRef),
-    ...aliases.slice(1).map((alias) => queryFrom(alias, primaryRegion)),
+    ...(aliases[0] && primaryRegion ? [queryFrom(aliases[0], primaryRegion)] : []),
+    ...(nearby ? [queryFrom(canonicalName, nearby)] : []),
+    ...(roadRef ? [queryFrom(canonicalName, roadRef)] : []),
+    ...(primaryRegion ? aliases.slice(1).map((alias) => queryFrom(alias, primaryRegion)) : []),
   ]
   const seen = new Set()
+  const bareTerms = new Set([
+    canonicalName,
+    ...aliases,
+    ...regions,
+    nearby,
+    roadRef,
+  ].map(normalizeText).filter(Boolean))
 
   return proposed.filter((query) => {
     const normalized = normalizeText(query)
-    if (!query || seen.has(normalized)) return false
+    if (!query || bareTerms.has(normalized) || seen.has(normalized)) return false
     seen.add(normalized)
     return true
   }).slice(0, 5)

@@ -18,6 +18,28 @@ describe('evaluatePlaceIdentity', () => {
     })
   })
 
+  it('removes every configured name variant before evaluating independent context', () => {
+    expect(evaluatePlaceIdentity(placeById('jinsha-river-bridge-zhubalong'), {
+      title: '金沙江大桥',
+      description: '竹巴笼金沙江大桥',
+    })).toEqual({
+      status: 'needs_review',
+      reason: 'insufficient-independent-evidence',
+      evidence: ['name'],
+    })
+  })
+
+  it('does not treat broad country or province-level publisher text as locality context', () => {
+    expect(evaluatePlaceIdentity(placeById('jinsha-river-bridge-zhubalong'), {
+      title: '金沙江大桥',
+      publisher: '中国摄影网',
+    })).toEqual({
+      status: 'needs_review',
+      reason: 'insufficient-independent-evidence',
+      evidence: ['name'],
+    })
+  })
+
   it('rejects negative evidence before otherwise matching identity evidence', () => {
     const place = placeById('jinsha-river-bridge-zhubalong')
 
@@ -108,6 +130,21 @@ describe('evaluatePlaceIdentity', () => {
     })
   })
 
+  it('accepts explicit glued display descriptors without reopening CJK name embedding', () => {
+    expect(evaluatePlaceIdentity(placeById('chunxi-road'), {
+      title: '航拍春熙路夜景照片',
+      description: '成都市',
+    }).status).toBe('exact')
+    expect(evaluatePlaceIdentity(placeById('chunxi-road'), {
+      title: '航拍春熙路口夜景',
+      description: '成都市',
+    }).status).toBe('rejected')
+    expect(evaluatePlaceIdentity(placeById('xiazetong-village'), {
+      title: '上则通村航拍',
+      description: '理塘县',
+    }).status).toBe('rejected')
+  })
+
   it('matches complete punctuated CJK names through contiguous delimited tokens only', () => {
     const place = {
       canonicalName: '甲地（乙村）',
@@ -140,7 +177,7 @@ describe('evaluatePlaceIdentity', () => {
     const place = {
       canonicalName: 'Foo Bridge',
       aliases: ['Bar Crossing'],
-      adminPath: ['Example City'],
+      adminPath: ['示例市'],
       nearbyLandmarks: [],
       roadRefs: [],
       negativeTerms: [],
@@ -157,11 +194,11 @@ describe('evaluatePlaceIdentity', () => {
       evidence: [],
     }
 
-    expect(evaluatePlaceIdentity(place, { title: 'Photo of Foo Bridge', description: 'Example City' })).toEqual(exact)
-    expect(evaluatePlaceIdentity(place, { title: 'Photo of Foo—Bridge', description: 'Example City' })).toEqual(exact)
-    expect(evaluatePlaceIdentity(place, { title: 'Photo of Bar Crossing', description: 'Example City' })).toEqual(exact)
-    expect(evaluatePlaceIdentity(place, { title: 'Foo Bridge2', description: 'Example City' })).toEqual(rejected)
-    expect(evaluatePlaceIdentity(place, { title: 'XFoo Bridge', description: 'Example City' })).toEqual(rejected)
+    expect(evaluatePlaceIdentity(place, { title: 'Photo of Foo Bridge', description: '示例市' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: 'Photo of Foo—Bridge', description: '示例市' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: 'Photo of Bar Crossing', description: '示例市' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: 'Foo Bridge2', description: '示例市' })).toEqual(rejected)
+    expect(evaluatePlaceIdentity(place, { title: 'XFoo Bridge', description: '示例市' })).toEqual(rejected)
   })
 
   it('uses close coordinates and every configured road reference as the road-node hard gate', () => {
@@ -199,6 +236,25 @@ describe('evaluatePlaceIdentity', () => {
       description: 'Junction of G3180 and G2489',
       coordinates: { lng: 101.547, lat: 30.038 },
     })).toEqual({
+      status: 'needs_review',
+      reason: 'close-coordinate-only',
+      evidence: ['coordinates'],
+    })
+  })
+
+  it('normalizes configured full-width road references without weakening boundaries', () => {
+    const junction = {
+      ...placeById('yingguancun-g318-g248-junction'),
+      roadRefs: ['Ｇ３１８'],
+    }
+    const coordinates = { lng: 101.547, lat: 30.038 }
+
+    expect(evaluatePlaceIdentity(junction, { description: 'G318 junction', coordinates })).toEqual({
+      status: 'exact',
+      reason: 'geo-and-road-evidence',
+      evidence: ['coordinates', 'roadRefs'],
+    })
+    expect(evaluatePlaceIdentity(junction, { description: 'G3180 junction', coordinates })).toEqual({
       status: 'needs_review',
       reason: 'close-coordinate-only',
       evidence: ['coordinates'],
@@ -286,6 +342,23 @@ describe('evaluatePlaceIdentity', () => {
 })
 
 describe('buildPlaceQueries', () => {
+  it('returns no bare or generic-class queries when no useful context exists', () => {
+    expect(buildPlaceQueries({
+      canonicalName: 'bridge',
+      aliases: [],
+      adminPath: [],
+      nearbyLandmarks: [],
+      roadRefs: [],
+    })).toEqual([])
+    expect(buildPlaceQueries({
+      canonicalName: '独特地标',
+      aliases: ['独特别名'],
+      adminPath: ['中国', '四川省'],
+      nearbyLandmarks: [],
+      roadRefs: [],
+    })).toEqual([])
+  })
+
   it('builds deterministic, unique, identity-rich queries capped at five', () => {
     const place = placeById('jinsha-river-bridge-zhubalong')
     const first = buildPlaceQueries(place)
