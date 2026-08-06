@@ -50,7 +50,7 @@ describe('benchmark image search providers', () => {
         creator: 'A. Photographer',
         license: 'cc-by',
         license_url: 'https://creativecommons.org/licenses/by/4.0/',
-        source: 'smithsonian',
+        provider: 'smithsonian',
       }],
     }))
 
@@ -91,7 +91,7 @@ describe('benchmark image search providers', () => {
           thumburl: 'https://upload.wikimedia.org/mountain.jpg',
           descriptionurl: 'https://commons.wikimedia.org/wiki/File:Mountain.jpg',
           extmetadata: {
-            Artist: { value: 'Commons author' },
+            Artist: { value: '<a href="https://author.example">Commons <b>author</b></a> &amp; Co' },
             LicenseShortName: { value: 'CC BY-SA 4.0' },
             LicenseUrl: { value: 'https://creativecommons.org/licenses/by-sa/4.0/' },
           },
@@ -112,7 +112,7 @@ describe('benchmark image search providers', () => {
     expect(commons.candidates[0]).toMatchObject({
       provider: 'commons', id: '8', title: 'Mountain.jpg', tags: 'Mountain.jpg',
       sourcePage: 'https://commons.wikimedia.org/wiki/File:Mountain.jpg',
-      imageUrl: 'https://upload.wikimedia.org/mountain.jpg', author: 'Commons author',
+      imageUrl: 'https://upload.wikimedia.org/mountain.jpg', author: 'Commons author &amp; Co',
       license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
       coordinates: null, publisher: '',
     })
@@ -121,6 +121,11 @@ describe('benchmark image search providers', () => {
     const pixabayUrl = new URL(pixabayFetch.mock.calls[0][0])
     expect(pixabayUrl.searchParams.get('q')).toBe('unique-pixabay-provider-query')
     expect(pixabayUrl.searchParams.get('lang')).toBe('zh')
+    expect(pixabayUrl.searchParams.get('key')).toBe('pix-key')
+    expect(pixabayUrl.searchParams.get('image_type')).toBe('photo')
+    expect(pixabayUrl.searchParams.get('orientation')).toBe('horizontal')
+    expect(pixabayUrl.searchParams.get('per_page')).toBe('20')
+    expect(pixabayUrl.searchParams.get('safesearch')).toBe('true')
   })
 
   it.each([
@@ -157,11 +162,11 @@ describe('benchmark image search providers', () => {
 
   it('preserves Brave source evidence and headers without fabricating a license', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ results: [{
-      id: 'brave-1',
       title: 'Published title',
       description: 'Published description',
       url: 'https://publisher.example/articles/place',
       thumbnail: { src: 'https://img.example/thumb.jpg' },
+      properties: { url: 'https://img.example/original.jpg' },
       source: 'Publisher Name',
       meta_url: { hostname: 'publisher.example' },
     }] }))
@@ -171,10 +176,10 @@ describe('benchmark image search providers', () => {
     })
 
     expect(result.candidates[0]).toMatchObject({
-      provider: 'brave', id: 'brave-1', title: 'Published title',
+      provider: 'brave', id: 'https://img.example/original.jpg', title: 'Published title',
       description: 'Published description', sourcePage: 'https://publisher.example/articles/place',
       imageUrl: 'https://img.example/thumb.jpg', license: '', licenseUrl: '',
-      publisher: 'Publisher Name', coordinates: null,
+      author: '', tags: '', publisher: 'Publisher Name', coordinates: null,
     })
     expectCandidateContract(result.candidates[0])
     const [url, options] = fetchImpl.mock.calls[0]
@@ -210,12 +215,29 @@ describe('benchmark image search providers', () => {
       .search({ query: 'provider-only-id', place: { canonicalName: 'Never use this' } })
 
     expect(result.candidates.map(({ id }) => id)).toEqual([
-      'https://publisher.example/page',
+      'https://images.example/full.jpg',
       'https://images.example/property-only.jpg',
       'https://images.example/thumbnail-only.jpg',
-      'https://publisher.example/blank-id',
+      'https://images.example/blank-id.jpg',
     ])
     expect(JSON.stringify(result.candidates)).not.toContain('Never use this')
+  })
+
+  it('keeps distinct Brave images from the same source page distinct', async () => {
+    const sourcePage = 'https://publisher.example/gallery'
+    const fetchImpl = vi.fn(async () => jsonResponse({ results: [
+      { url: sourcePage, properties: { url: 'https://images.example/one.jpg' } },
+      { url: sourcePage, properties: { url: 'https://images.example/two.jpg' } },
+    ] }))
+
+    const result = await createBraveProvider({ apiKey: 'key', fetchImpl })
+      .search({ query: 'gallery', place: {} })
+
+    expect(result.candidates.map(({ id }) => id)).toEqual([
+      'https://images.example/one.jpg',
+      'https://images.example/two.jpg',
+    ])
+    expect(result.candidates.map(({ sourcePage: page }) => page)).toEqual([sourcePage, sourcePage])
   })
 
   it('maps Mapillary API coordinates and capture time without copying target evidence', async () => {
@@ -237,12 +259,75 @@ describe('benchmark image search providers', () => {
       coordinates: { lng: 101.5468, lat: 30.0381 }, publisher: 'Mapillary',
     })
     expect(JSON.stringify(result.candidates[0])).not.toMatch(/Target Name|Alias|requested target query/)
-    const requestUrl = new URL(fetchImpl.mock.calls[0][0])
+    const [rawRequestUrl, options] = fetchImpl.mock.calls[0]
+    const requestUrl = new URL(rawRequestUrl)
     expect(requestUrl.origin + requestUrl.pathname).toBe('https://graph.mapillary.com/images')
     expect(requestUrl.searchParams.get('bbox')).toBe('101.53999999999999,30.029999999999998,101.56,30.05')
     expect(requestUrl.searchParams.get('limit')).toBe('20')
     expect(requestUrl.searchParams.get('fields')).toBe('id,thumb_2048_url,computed_geometry,captured_at')
-    expect(requestUrl.searchParams.get('access_token')).toBe('map-token')
+    expect(requestUrl.searchParams.has('access_token')).toBe(false)
+    expect(rawRequestUrl).not.toContain('map-token')
+    expect(options.headers).toEqual({ Authorization: 'OAuth map-token' })
+  })
+
+  it.each(['transport', 'upstream'])('never exposes the Mapillary token in %s errors or URLs', async (failure) => {
+    const accessToken = 'secret-mapillary-token'
+    let requestedUrl = ''
+    let requestedOptions
+    const fetchImpl = vi.fn(async (url, options) => {
+      requestedUrl = url
+      requestedOptions = options
+      if (failure === 'transport') throw new Error(`transport failed for ${url}`)
+      return jsonResponse({}, { ok: false, status: 503 })
+    })
+
+    let caught
+    try {
+      await createMapillaryProvider({ accessToken, fetchImpl }).search({
+        query: 'x', place: { coordinates: { lng: 1, lat: 2 } },
+      })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(Error)
+    expect(String(caught)).not.toContain(accessToken)
+    expect(requestedUrl).not.toContain(accessToken)
+    expect(new URL(requestedUrl).searchParams.has('access_token')).toBe(false)
+    expect(requestedOptions.headers).toEqual({ Authorization: `OAuth ${accessToken}` })
+    if (failure === 'upstream') expect(caught.status).toBe(503)
+  })
+
+  it.each([
+    [179.999, 89.999],
+    [-179.999, -89.999],
+  ])('splits antimeridian bboxes and clamps polar latitude for %s,%s', async (lng, lat) => {
+    let responseIndex = 0
+    const fetchImpl = vi.fn(async () => {
+      responseIndex += 1
+      return jsonResponse({ data: [
+        { id: 'duplicate', thumb_2048_url: 'https://images.example/duplicate.jpg' },
+        { id: `unique-${responseIndex}`, thumb_2048_url: `https://images.example/${responseIndex}.jpg` },
+      ] })
+    })
+
+    const result = await createMapillaryProvider({ accessToken: 'token', fetchImpl })
+      .search({ query: 'x', place: { coordinates: { lng, lat } } })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    for (const [rawUrl, options] of fetchImpl.mock.calls) {
+      const url = new URL(rawUrl)
+      const [west, south, east, north] = url.searchParams.get('bbox').split(',').map(Number)
+      expect(west).toBeGreaterThanOrEqual(-180)
+      expect(east).toBeLessThanOrEqual(180)
+      expect(west).toBeLessThanOrEqual(east)
+      expect(south).toBeGreaterThanOrEqual(-90)
+      expect(north).toBeLessThanOrEqual(90)
+      expect(south).toBeLessThanOrEqual(north)
+      expect(url.searchParams.has('access_token')).toBe(false)
+      expect(options.headers).toEqual({ Authorization: 'OAuth token' })
+    }
+    expect(result.candidates.map(({ id }) => id).sort()).toEqual(['duplicate', 'unique-1', 'unique-2'])
   })
 
   it.each([
@@ -259,10 +344,13 @@ describe('benchmark image search providers', () => {
   })
 
   it.each([
-    ['openverse', 429, () => createOpenverseProvider({ fetchImpl: vi.fn(async () => jsonResponse({}, { ok: false, status: 429 })) })],
-    ['brave', 500, () => createBraveProvider({ apiKey: 'key', fetchImpl: vi.fn(async () => jsonResponse({}, { ok: false, status: 500 })) })],
-  ])('attaches the upstream status to %s errors', async (_name, status, makeProvider) => {
-    await expect(makeProvider().search({ query: 'x', place: {} })).rejects.toMatchObject({ status })
+    ['pixabay', 429, () => createPixabayProvider({ apiKey: 'key', fetchImpl: vi.fn(async () => jsonResponse({}, { ok: false, status: 429 })) }), {}],
+    ['commons', 502, () => createCommonsProvider({ fetchImpl: vi.fn(async () => jsonResponse({}, { ok: false, status: 500 })) }), {}],
+    ['openverse', 429, () => createOpenverseProvider({ fetchImpl: vi.fn(async () => jsonResponse({}, { ok: false, status: 429 })) }), {}],
+    ['brave', 500, () => createBraveProvider({ apiKey: 'key', fetchImpl: vi.fn(async () => jsonResponse({}, { ok: false, status: 500 })) }), {}],
+    ['mapillary', 503, () => createMapillaryProvider({ accessToken: 'token', fetchImpl: vi.fn(async () => jsonResponse({}, { ok: false, status: 503 })) }), { coordinates: { lng: 1, lat: 2 } }],
+  ])('attaches the upstream status to %s errors', async (_name, status, makeProvider, place) => {
+    await expect(makeProvider().search({ query: 'x', place })).rejects.toMatchObject({ status })
   })
 
   it('drops malformed or incomplete hits and tolerates missing arrays', async () => {
@@ -307,7 +395,7 @@ describe('benchmark image search providers', () => {
     ['commons', () => createCommonsProvider({
       fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('bad JSON') } })),
     })],
-  ])('does not let the wrapped %s source hide malformed JSON or its 502 status', async (name, makeProvider) => {
+  ])('does not let %s hide malformed JSON or its 502 status', async (name, makeProvider) => {
     await expect(makeProvider().search({ query: `malformed-${name}`, place: {} }))
       .rejects.toMatchObject({
         status: 502,
@@ -315,25 +403,53 @@ describe('benchmark image search providers', () => {
       })
   })
 
-  it('clears the production Pixabay cache before using the adapter fetch implementation', async () => {
+  it('keeps the production Pixabay cache isolated from benchmark searches', async () => {
     clearSearchCache()
-    const firstFetch = vi.fn(async () => jsonResponse({ hits: [{
+    const productionPrimeFetch = vi.fn(async () => jsonResponse({ hits: [{
       id: 'primed', webformatURL: 'https://images.example/primed.jpg',
     }] }))
-    const secondFetch = vi.fn(async () => jsonResponse({ hits: [{
-      id: 'fresh', webformatURL: 'https://images.example/fresh.jpg',
+    const benchmarkFetch = vi.fn(async () => jsonResponse({ hits: [{
+      id: 'benchmark', webformatURL: 'https://images.example/benchmark.jpg',
+    }] }))
+    const productionAfterFetch = vi.fn(async () => jsonResponse({ hits: [{
+      id: 'unexpected', webformatURL: 'https://images.example/unexpected.jpg',
     }] }))
 
     try {
-      await searchImages({ apiKey: 'key', q: 'cache-isolation-query', lang: 'zh' }, firstFetch)
-      const result = await createPixabayProvider({ apiKey: 'key', fetchImpl: secondFetch })
+      await searchImages({ apiKey: 'key', q: 'cache-isolation-query', lang: 'zh' }, productionPrimeFetch)
+      const benchmarkResult = await createPixabayProvider({ apiKey: 'key', fetchImpl: benchmarkFetch })
         .search({ query: 'cache-isolation-query', place: {} })
+      const productionResult = await searchImages(
+        { apiKey: 'key', q: 'cache-isolation-query', lang: 'zh' },
+        productionAfterFetch,
+      )
 
-      expect(secondFetch).toHaveBeenCalledOnce()
-      expect(result.candidates[0]).toMatchObject({ id: 'fresh', imageUrl: 'https://images.example/fresh.jpg' })
+      expect(benchmarkFetch).toHaveBeenCalledOnce()
+      expect(benchmarkResult.candidates[0]).toMatchObject({
+        id: 'benchmark', imageUrl: 'https://images.example/benchmark.jpg',
+      })
+      expect(productionAfterFetch).not.toHaveBeenCalled()
+      expect(productionResult).toEqual([expect.objectContaining({ id: 'primed' })])
     } finally {
       clearSearchCache()
     }
+  })
+
+  it('preserves native Response JSON promises through the Commons compatibility wrapper', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ query: { pages: {
+      77: {
+        pageid: 77,
+        title: 'File:Native.jpg',
+        imageinfo: [{ url: 'https://upload.wikimedia.org/native.jpg' }],
+      },
+    } } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    const result = await createCommonsProvider({ fetchImpl }).search({ query: 'native-response', place: {} })
+
+    expect(result.candidates).toEqual([expect.objectContaining({ id: '77', title: 'Native.jpg' })])
   })
 
   it('constructs every factory safely without arguments', async () => {
