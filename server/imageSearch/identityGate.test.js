@@ -93,6 +93,49 @@ describe('evaluatePlaceIdentity', () => {
     expect(evaluatePlaceIdentity(village, { title: '航拍：则通村；川西村落', description: '理塘县' }).status).toBe('exact')
   })
 
+  it('does not embed a canonical CJK name inside a longer unknown proper-name token', () => {
+    const place = placeById('chunxi-road')
+
+    expect(evaluatePlaceIdentity(place, { title: '春熙路口', description: '成都市' })).toEqual({
+      status: 'rejected',
+      reason: 'insufficient-identity-evidence',
+      evidence: [],
+    })
+    expect(evaluatePlaceIdentity(place, { title: '春熙路夜景', description: '成都市' })).toEqual({
+      status: 'exact',
+      reason: 'name-and-context-evidence',
+      evidence: ['name', 'context'],
+    })
+  })
+
+  it('matches multiword ASCII names flexibly but enforces alphanumeric boundaries', () => {
+    const place = {
+      canonicalName: 'Foo Bridge',
+      aliases: ['Bar Crossing'],
+      adminPath: ['Example City'],
+      nearbyLandmarks: [],
+      roadRefs: [],
+      negativeTerms: [],
+      nodeType: 'named-landmark',
+    }
+    const exact = {
+      status: 'exact',
+      reason: 'name-and-context-evidence',
+      evidence: ['name', 'context'],
+    }
+    const rejected = {
+      status: 'rejected',
+      reason: 'insufficient-identity-evidence',
+      evidence: [],
+    }
+
+    expect(evaluatePlaceIdentity(place, { title: 'Photo of Foo Bridge', description: 'Example City' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: 'Photo of Foo—Bridge', description: 'Example City' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: 'Photo of Bar Crossing', description: 'Example City' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: 'Foo Bridge2', description: 'Example City' })).toEqual(rejected)
+    expect(evaluatePlaceIdentity(place, { title: 'XFoo Bridge', description: 'Example City' })).toEqual(rejected)
+  })
+
   it('uses close coordinates and every configured road reference as the road-node hard gate', () => {
     const junction = placeById('yingguancun-g318-g248-junction')
 
@@ -265,6 +308,25 @@ describe('buildPlaceQueries', () => {
       '测试地 G318',
       '别名二 理塘县',
     ])
+  })
+
+  it('never emits a region-only query when a place has no aliases', () => {
+    const place = {
+      canonicalName: '无别名地标',
+      aliases: [],
+      adminPath: ['中国', '西藏自治区', '林芝市', '波密县'],
+      nearbyLandmarks: ['然乌湖'],
+      roadRefs: ['G318'],
+    }
+    const queries = buildPlaceQueries(place)
+
+    expect(queries).toEqual([
+      '无别名地标 林芝市',
+      '无别名地标 波密县',
+      '无别名地标 然乌湖',
+      '无别名地标 G318',
+    ])
+    expect(queries.every((query) => query.includes(place.canonicalName))).toBe(true)
   })
 
   it('keeps query invariants for every benchmark place', () => {

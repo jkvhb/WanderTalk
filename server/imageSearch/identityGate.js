@@ -3,6 +3,9 @@ const GENERIC_CLASS_TERMS = new Set([
   'bridge', '桥', 'snowmountain', '雪山', 'lake', '湖泊', 'temple', '寺庙', 'plateau', '高原',
   'museum', '博物馆',
 ])
+const SAFE_NAME_SUFFIXES = [
+  '景区', '风景区', '实景', '照片', '图片', '航拍', '夜景', '风光', '游记', '攻略',
+]
 
 function normalizeText(value) {
   if (typeof value !== 'string') return ''
@@ -46,12 +49,38 @@ function containsRoadRef(text, roadRef) {
   return new RegExp(`(?:^|[^a-z0-9])${escaped}(?=$|[^a-z0-9])`, 'iu').test(text.normalize('NFKC'))
 }
 
+function fieldTokens(field) {
+  return field.split(/[\p{P}\p{S}\s]+/u).map(normalizeText).filter(Boolean)
+}
+
+function containsCjkName(fields, name) {
+  const normalizedName = normalizeText(name)
+  return fields.some((field) => fieldTokens(field).some((token) => token === normalizedName
+    || SAFE_NAME_SUFFIXES.some((suffix) => token === normalizedName + normalizeText(suffix))))
+}
+
+function containsAsciiName(fields, name) {
+  const parts = name
+    .normalize('NFKC')
+    .trim()
+    .split(/[\p{P}\p{S}\s]+/u)
+    .filter(Boolean)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  if (parts.length === 0) return false
+
+  const phrase = parts.join('[\\p{P}\\p{S}\\s]+')
+  const pattern = new RegExp(`(?:^|[^a-z0-9])${phrase}(?=$|[^a-z0-9])`, 'iu')
+  return fields.some((field) => pattern.test(field.normalize('NFKC')))
+}
+
 function hasNameEvidence(place, text, fields) {
   const canonicalName = place?.canonicalName
   const normalizedCanonical = normalizeText(canonicalName)
   if (normalizedCanonical
     && !GENERIC_CLASS_TERMS.has(normalizedCanonical)
-    && containsTerm(text, canonicalName)) {
+    && (/[a-z]/iu.test(canonicalName)
+      ? containsAsciiName(fields, canonicalName)
+      : containsCjkName(fields, canonicalName))) {
     return canonicalName
   }
 
@@ -59,10 +88,9 @@ function hasNameEvidence(place, text, fields) {
     const normalizedAlias = normalizeText(alias)
     if (!normalizedAlias || GENERIC_CLASS_TERMS.has(normalizedAlias)) return false
 
-    return fields.some((field) => normalizeText(field) === normalizedAlias
-      || field
-        .split(/[\p{P}\p{S}\s]+/u)
-        .some((token) => normalizeText(token) === normalizedAlias))
+    return /[a-z]/iu.test(alias)
+      ? containsAsciiName(fields, alias)
+      : containsCjkName(fields, alias)
   })
 }
 
@@ -193,7 +221,7 @@ export function buildPlaceQueries(place) {
     : [queryFrom(canonicalName)]
   const proposed = [
     ...canonicalRegionQueries,
-    queryFrom(aliases[0], primaryRegion),
+    ...(aliases[0] ? [queryFrom(aliases[0], primaryRegion)] : []),
     queryFrom(canonicalName, nearby),
     queryFrom(canonicalName, roadRef),
     ...aliases.slice(1).map((alias) => queryFrom(alias, primaryRegion)),
