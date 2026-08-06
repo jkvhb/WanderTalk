@@ -1,0 +1,253 @@
+import { searchCommonsImages } from '../commonsImages.js'
+import { searchImages } from '../images.js'
+
+const OPENVERSE_URL = 'https://api.openverse.org/v1/images/'
+const BRAVE_URL = 'https://api.search.brave.com/res/v1/images/search'
+const MAPILLARY_URL = 'https://graph.mapillary.com/images'
+
+function stringValue(value) {
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+  return ''
+}
+
+function tagValues(value) {
+  if (Array.isArray(value)) return value.flatMap(tagValues)
+  if (value && typeof value === 'object') return tagValues(value.name)
+  const tag = stringValue(value)
+  return tag ? [tag] : []
+}
+
+function normalizeTags(value) {
+  return tagValues(value).join(', ')
+}
+
+function candidate(provider, values) {
+  return {
+    provider,
+    id: stringValue(values.id),
+    title: stringValue(values.title),
+    description: stringValue(values.description),
+    tags: normalizeTags(values.tags),
+    sourcePage: stringValue(values.sourcePage),
+    imageUrl: stringValue(values.imageUrl),
+    author: stringValue(values.author),
+    license: stringValue(values.license),
+    licenseUrl: stringValue(values.licenseUrl),
+    coordinates: values.coordinates || null,
+    publisher: stringValue(values.publisher),
+  }
+}
+
+function normalizeCandidates(provider, hits, mapHit) {
+  if (!Array.isArray(hits)) return []
+  return hits
+    .filter((hit) => hit && typeof hit === 'object')
+    .map((hit) => candidate(provider, mapHit(hit)))
+    .filter((hit) => hit.id && hit.imageUrl)
+}
+
+function elapsedSince(startedAt) {
+  return Date.now() - startedAt
+}
+
+function upstreamError(provider, status) {
+  const error = new Error(`${provider} request failed (${status})`)
+  error.status = status
+  return error
+}
+
+async function readJson(response, provider) {
+  try {
+    return await response.json()
+  } catch (cause) {
+    throw malformedJsonError(provider, cause)
+  }
+}
+
+function malformedJsonError(provider, cause) {
+  const error = new Error(`${provider} returned malformed JSON`)
+  error.cause = cause
+  return error
+}
+
+function preserveJsonErrors(fetchImpl, provider) {
+  return async (...args) => {
+    const response = await fetchImpl(...args)
+    if (!response?.ok || typeof response.json !== 'function') return response
+    return new Proxy(response, {
+      get(target, property) {
+        if (property !== 'json') return Reflect.get(target, property, target)
+        return () => ({
+          catch: () => Promise.resolve()
+            .then(() => target.json())
+            .catch((cause) => { throw malformedJsonError(provider, cause) }),
+        })
+      },
+    })
+  }
+}
+
+function validCoordinates(coordinates) {
+  return coordinates
+    && typeof coordinates === 'object'
+    && !Array.isArray(coordinates)
+    && Number.isFinite(coordinates.lng)
+    && coordinates.lng >= -180
+    && coordinates.lng <= 180
+    && Number.isFinite(coordinates.lat)
+    && coordinates.lat >= -90
+    && coordinates.lat <= 90
+}
+
+function geometryCoordinates(geometry) {
+  const values = geometry?.coordinates
+  if (!Array.isArray(values) || values.length < 2) return null
+  const [lng, lat] = values
+  return validCoordinates({ lng, lat }) ? { lng, lat } : null
+}
+
+export function createPixabayProvider({ apiKey, fetchImpl = fetch }) {
+  return {
+    name: 'pixabay',
+    async search({ query }) {
+      if (!apiKey) return { skipped: true, reason: 'missing-credentials' }
+      const startedAt = Date.now()
+      const hits = await searchImages(
+        { apiKey, q: query, lang: 'zh' },
+        preserveJsonErrors(fetchImpl, 'Pixabay'),
+      )
+      return {
+        candidates: normalizeCandidates('pixabay', hits, (hit) => ({
+          id: hit.id,
+          tags: hit.tags,
+          sourcePage: hit.pageURL,
+          imageUrl: hit.largeImageURL || hit.webformatURL,
+        })),
+        elapsedMs: elapsedSince(startedAt),
+      }
+    },
+  }
+}
+
+export function createCommonsProvider({ fetchImpl = fetch }) {
+  return {
+    name: 'commons',
+    async search({ query }) {
+      const startedAt = Date.now()
+      const hits = await searchCommonsImages({ q: query }, preserveJsonErrors(fetchImpl, 'Commons'))
+      return {
+        candidates: normalizeCandidates('commons', hits, (hit) => ({
+          id: hit.id,
+          title: hit.title,
+          tags: hit.tags,
+          sourcePage: hit.pageURL,
+          imageUrl: hit.largeImageURL || hit.webformatURL,
+          author: hit.attribution?.author,
+          license: hit.attribution?.license,
+          licenseUrl: hit.attribution?.licenseUrl,
+        })),
+        elapsedMs: elapsedSince(startedAt),
+      }
+    },
+  }
+}
+
+export function createOpenverseProvider({ fetchImpl = fetch }) {
+  return {
+    name: 'openverse',
+    async search({ query }) {
+      const startedAt = Date.now()
+      const url = new URL(OPENVERSE_URL)
+      url.searchParams.set('q', stringValue(query))
+      url.searchParams.set('page_size', '20')
+      const response = await fetchImpl(url.toString())
+      if (!response.ok) throw upstreamError('Openverse', response.status)
+      const data = await readJson(response, 'Openverse')
+      return {
+        candidates: normalizeCandidates('openverse', data?.results, (hit) => ({
+          id: hit.id,
+          title: hit.title,
+          description: hit.description,
+          tags: hit.tags,
+          sourcePage: hit.foreign_landing_url,
+          imageUrl: hit.thumbnail || hit.url,
+          author: hit.creator,
+          license: hit.license,
+          licenseUrl: hit.license_url,
+          publisher: hit.source || hit.publisher,
+        })),
+        elapsedMs: elapsedSince(startedAt),
+      }
+    },
+  }
+}
+
+export function createBraveProvider({ apiKey, fetchImpl = fetch }) {
+  return {
+    name: 'brave',
+    async search({ query }) {
+      if (!apiKey) return { skipped: true, reason: 'missing-credentials' }
+      const startedAt = Date.now()
+      const url = new URL(BRAVE_URL)
+      url.searchParams.set('q', stringValue(query))
+      url.searchParams.set('count', '20')
+      url.searchParams.set('safesearch', 'strict')
+      const response = await fetchImpl(url.toString(), {
+        headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey },
+      })
+      if (!response.ok) throw upstreamError('Brave', response.status)
+      const data = await readJson(response, 'Brave')
+      return {
+        candidates: normalizeCandidates('brave', data?.results, (hit) => ({
+          id: hit.id,
+          title: hit.title,
+          description: hit.description,
+          tags: hit.tags,
+          sourcePage: hit.url,
+          imageUrl: hit.thumbnail?.src || hit.properties?.url,
+          author: hit.author,
+          license: typeof hit.license === 'object' ? hit.license.name : hit.license,
+          licenseUrl: hit.license_url || (typeof hit.license === 'object' ? hit.license.url : ''),
+          publisher: hit.source || hit.meta_url?.hostname || hit.meta_url?.netloc,
+        })),
+        elapsedMs: elapsedSince(startedAt),
+      }
+    },
+  }
+}
+
+export function createMapillaryProvider({ accessToken, fetchImpl = fetch }) {
+  return {
+    name: 'mapillary',
+    async search({ place }) {
+      if (!accessToken) return { skipped: true, reason: 'missing-credentials' }
+      if (!validCoordinates(place?.coordinates)) return { skipped: true, reason: 'missing-coordinates' }
+      const startedAt = Date.now()
+      const { lng, lat } = place.coordinates
+      const url = new URL(MAPILLARY_URL)
+      url.searchParams.set('bbox', `${lng - 0.01},${lat - 0.01},${lng + 0.01},${lat + 0.01}`)
+      url.searchParams.set('limit', '20')
+      url.searchParams.set('fields', 'id,thumb_2048_url,computed_geometry,captured_at')
+      url.searchParams.set('access_token', accessToken)
+      const response = await fetchImpl(url.toString())
+      if (!response.ok) throw upstreamError('Mapillary', response.status)
+      const data = await readJson(response, 'Mapillary')
+      return {
+        candidates: normalizeCandidates('mapillary', data?.data, (hit) => ({
+          id: hit.id,
+          description: hit.captured_at === undefined || hit.captured_at === null
+            ? ''
+            : `captured_at: ${stringValue(hit.captured_at)}`,
+          sourcePage: hit.id === undefined || hit.id === null
+            ? ''
+            : `https://www.mapillary.com/app/?pKey=${encodeURIComponent(String(hit.id))}`,
+          imageUrl: hit.thumb_2048_url,
+          coordinates: geometryCoordinates(hit.computed_geometry),
+          publisher: 'Mapillary',
+        })),
+        elapsedMs: elapsedSince(startedAt),
+      }
+    },
+  }
+}
