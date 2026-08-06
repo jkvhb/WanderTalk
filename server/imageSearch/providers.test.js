@@ -484,4 +484,28 @@ describe('benchmark image search providers', () => {
     })))
     for (const result of results) expectCandidateContract(result.candidates[0])
   })
+
+  it('passes the benchmark AbortSignal through all five provider fetches', async () => {
+    const controller = new AbortController()
+    const pixabayFetch = vi.fn(async () => jsonResponse({ hits: [] }))
+    const commonsFetch = vi.fn(async () => jsonResponse({ query: { pages: {} } }))
+    const openverseFetch = vi.fn(async () => jsonResponse({ results: [] }))
+    const braveFetch = vi.fn(async () => jsonResponse({ results: [] }))
+    const mapillaryFetch = vi.fn(async () => jsonResponse({ data: [] }))
+    const providers = [
+      createPixabayProvider({ apiKey: 'key', fetchImpl: pixabayFetch }),
+      createCommonsProvider({ fetchImpl: commonsFetch }),
+      createOpenverseProvider({ fetchImpl: openverseFetch }),
+      createBraveProvider({ apiKey: 'key', fetchImpl: braveFetch }),
+      createMapillaryProvider({ accessToken: 'token', fetchImpl: mapillaryFetch }),
+    ]
+
+    await Promise.all(providers.map((provider) => provider.search({
+      query: 'signal-test', place: { coordinates: { lng: 1, lat: 2 } }, signal: controller.signal,
+    })))
+
+    for (const fetchImpl of [pixabayFetch, commonsFetch, openverseFetch, braveFetch, mapillaryFetch]) {
+      expect(fetchImpl.mock.calls[0][1]?.signal).toBe(controller.signal)
+    }
+  })
 })

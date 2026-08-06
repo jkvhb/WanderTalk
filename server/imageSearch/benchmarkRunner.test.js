@@ -57,7 +57,10 @@ describe('搜图基准执行器', () => {
     await expect(runner.searchOnce({ query: 'x', place: { id: 'a' } }, 'missing')).resolves.toEqual({
       error: 'Unknown provider: missing',
       status: 500,
+      attemptCount: 0,
       retryCount: 0,
+      timeoutCount: 0,
+      statusCounts: {},
       cacheHit: false,
     })
   })
@@ -182,23 +185,32 @@ describe('搜图基准执行器', () => {
   it('同一来源的不同地点可以用满 run 的并发额度', async () => {
     let active = 0
     let maximum = 0
-    let release
-    const gate = new Promise((resolve) => { release = resolve })
-    const fallback = setTimeout(release, 20)
+    let barrierOpen = false
+    const waiters = []
     const search = vi.fn(async () => {
       active += 1
       maximum = Math.max(maximum, active)
-      if (active === 3) {
-        clearTimeout(fallback)
-        release()
-      }
-      await gate
+      await new Promise((resolve) => {
+        if (barrierOpen) resolve()
+        else waiters.push(resolve)
+      })
       active -= 1
       return { candidates: [], elapsedMs: 1 }
     })
     const runner = createBenchmarkRunner({ providers: [{ name: 'one', search }], concurrency: 3 })
 
-    await runner.run([{ id: 'a' }, { id: 'b' }, { id: 'c' }], () => ['q'])
+    const running = runner.run([{ id: 'a' }, { id: 'b' }, { id: 'c' }], () => ['q'])
+    let barrierError
+    try {
+      await vi.waitFor(() => expect(search).toHaveBeenCalledTimes(3), { timeout: 200 })
+    } catch (error) {
+      barrierError = error
+    } finally {
+      barrierOpen = true
+      waiters.splice(0).forEach((resolve) => resolve())
+    }
+    await running
+    if (barrierError) throw barrierError
 
     expect(maximum).toBe(3)
   })
@@ -279,9 +291,25 @@ describe('搜图基准执行器', () => {
       sleep: async () => {},
     })
 
-    const [row] = await runner.run([{ id: 'a' }], () => ['same', 'same'])
+    const [freshRow, cachedRow] = await runner.run([{ id: 'a' }, { id: 'a' }], () => ['same', 'same'])
 
-    expect(row).toMatchObject({ retryCount: 2, requestCount: 3, cacheHits: 1 })
+    expect(freshRow).toMatchObject({
+      requestCount: 1,
+      attemptCount: 3,
+      retryCount: 2,
+      timeoutCount: 0,
+      statusCounts: { 429: 1, '5xx': 1 },
+      cacheHits: 0,
+    })
+    expect(cachedRow).toMatchObject({
+      requestCount: 0,
+      attemptCount: 0,
+      retryCount: 0,
+      timeoutCount: 0,
+      statusCounts: {},
+      cacheHits: 1,
+      errors: [],
+    })
     expect(search).toHaveBeenCalledTimes(3)
   })
 
@@ -316,5 +344,179 @@ describe('搜图基准执行器', () => {
     const after = await runner.searchOnce({ query: 'after', place: { id: 'd' } }, 'fake')
     expect(after).not.toHaveProperty('skipped')
     expect(search).toHaveBeenCalledTimes(4)
+  })
+
+  it('来源忽略 signal 并永久悬挂时仍会超时、abort 并结束请求', async () => {
+    let receivedSignal
+    const search = vi.fn(({ signal }) => {
+      receivedSignal = signal
+      return new Promise(() => {})
+    })
+    const runner = createBenchmarkRunner({
+      providers: [{ name: 'hanging', search }],
+      retries: 0,
+      requestTimeoutMs: 10,
+    })
+
+    const result = await Promise.race([
+      runner.searchOnce({ query: 'x', place: { id: 'a' } }, 'hanging'),
+      new Promise((resolve) => setTimeout(() => resolve({ testTimedOut: true }), 100)),
+    ])
+
+    expect(result).toMatchObject({
+      status: 'timeout', timeoutCount: 1, attemptCount: 1, retryCount: 0, cacheHit: false,
+    })
+    expect(result.statusCounts).toEqual({ timeout: 1 })
+    expect(receivedSignal).toBeInstanceOf(AbortSignal)
+    expect(receivedSignal.aborted).toBe(true)
+  })
+
+  it('单个来源悬挂不会阻止整批结束，并在行指标中记录 timeout', async () => {
+    const hanging = { name: 'hanging', search: vi.fn(() => new Promise(() => {})) }
+    const good = { name: 'good', search: vi.fn(async () => ({ candidates: [], elapsedMs: 1 })) }
+    const runner = createBenchmarkRunner({
+      providers: [hanging, good], concurrency: 2, retries: 0, requestTimeoutMs: 10,
+    })
+
+    const rows = await runner.run([{ id: 'a' }], () => ['q'])
+    const timedOut = rows.find((row) => row.provider === 'hanging')
+
+    expect(rows).toHaveLength(2)
+    expect(timedOut).toMatchObject({
+      requestCount: 1,
+      attemptCount: 1,
+      retryCount: 0,
+      timeoutCount: 1,
+      statusCounts: { timeout: 1 },
+      errors: [expect.objectContaining({ status: 'timeout' })],
+    })
+    expect(rows.find((row) => row.provider === 'good').errors).toEqual([])
+  })
+
+  it('同一 canonical imageUrl 即使 ID 不同也只计作一张 exact', async () => {
+    const place = {
+      id: 'midui', canonicalName: '米堆冰川', aliases: [],
+      adminPath: ['西藏自治区', '林芝市', '波密县'], nearbyLandmarks: [], roadRefs: [],
+      negativeTerms: [], nodeType: 'natural-landmark', coordinates: null,
+    }
+    const exact = (id, imageUrl) => ({ id, provider: 'fake', title: '米堆冰川', description: '波密县', imageUrl })
+    const search = vi.fn(async () => ({ candidates: [
+      exact('one', 'HTTPS://IMG.EXAMPLE:443/a/../photo.jpg#first'),
+      exact('two', 'https://img.example/photo.jpg#second'),
+      exact('three', 'https://img.example/three.jpg'),
+      exact('four', 'https://img.example/four.jpg'),
+    ] }))
+    const runner = createBenchmarkRunner({ providers: [{ name: 'fake', search }] })
+
+    const [row] = await runner.run([place], () => ['q'])
+
+    expect(row.exact.map(({ id }) => id)).toEqual(['one', 'three', 'four'])
+  })
+
+  it('没有稳定 provider+id 或有效图片 URL 的候选不得占用 exact 配额', async () => {
+    const place = {
+      id: 'midui', canonicalName: '米堆冰川', aliases: [],
+      adminPath: ['西藏自治区', '林芝市', '波密县'], nearbyLandmarks: [], roadRefs: [],
+      negativeTerms: [], nodeType: 'natural-landmark', coordinates: null,
+    }
+    const candidate = (id, imageUrl) => ({
+      id, provider: 'fake', title: '米堆冰川', description: '波密县', imageUrl,
+    })
+    const search = vi.fn(async () => ({ candidates: [
+      candidate('', 'not-a-url'),
+      candidate('one', 'https://img.example/one.jpg'),
+      candidate('two', 'https://img.example/two.jpg'),
+      candidate('three', 'https://img.example/three.jpg'),
+    ] }))
+    const runner = createBenchmarkRunner({ providers: [{ name: 'fake', search }] })
+
+    const [row] = await runner.run([place], () => ['q'])
+
+    expect(row.exact.map(({ id }) => id)).toEqual(['one', 'two', 'three'])
+    expect(row.needsReview).toEqual([
+      expect.objectContaining({ identityReason: 'unstable-candidate-identity' }),
+    ])
+  })
+
+  it('重试 sleep 抛错时返回结构化失败，不拒绝 searchOnce', async () => {
+    const search = vi.fn(async () => { throw Object.assign(new Error('upstream'), { status: 503 }) })
+    const sleep = vi.fn(async () => { throw new Error('timer unavailable') })
+    const runner = createBenchmarkRunner({ providers: [{ name: 'fake', search }], retries: 2, sleep })
+
+    await expect(runner.searchOnce({ query: 'q', place: { id: 'a' } }, 'fake')).resolves.toMatchObject({
+      error: 'Retry sleep failed: timer unavailable',
+      status: 'sleep-error',
+      attemptCount: 1,
+      retryCount: 0,
+      statusCounts: { '5xx': 1 },
+    })
+  })
+
+  it('provider 返回非对象或非数组 candidates 时形成结构化行错误', async () => {
+    const runner = createBenchmarkRunner({ providers: [
+      { name: 'null-result', search: vi.fn(async () => null) },
+      { name: 'bad-candidates', search: vi.fn(async () => ({ candidates: {} })) },
+    ] })
+
+    const rows = await runner.run([{ id: 'a' }], () => ['q'])
+
+    expect(rows.map((row) => row.errors)).toEqual([
+      [expect.objectContaining({ status: 'invalid-provider-result' })],
+      [expect.objectContaining({ status: 'invalid-provider-result' })],
+    ])
+  })
+
+  it('queryBuilder 异常和无效返回形成行错误，查询会去空并去重', async () => {
+    const search = vi.fn(async () => ({ candidates: [] }))
+    const runner = createBenchmarkRunner({ providers: [{ name: 'fake', search }] })
+    const queryBuilder = (place) => {
+      if (place.id === 'throws') throw new Error('cannot build')
+      if (place.id === 'undefined') return undefined
+      if (place.id === 'empty') return ['', '  ', null]
+      return [' q ', 'q', '', 3, 'z']
+    }
+
+    const running = runner.run([
+      { id: 'throws' }, { id: 'undefined' }, { id: 'empty' }, { id: 'valid' },
+    ], queryBuilder)
+    await expect(running).resolves.toHaveLength(4)
+    const rows = await running
+
+    expect(rows.slice(0, 3).map((row) => row.errors[0]?.status)).toEqual([
+      'query-builder-error', 'invalid-queries', 'no-valid-queries',
+    ])
+    expect(search.mock.calls.map(([input]) => input.query)).toEqual(['q', 'z'])
+  })
+
+  it('缓存命中的历史最终错误不会重复写入另一行', async () => {
+    const search = vi.fn(async () => { throw Object.assign(new Error('bad'), { status: 400 }) })
+    const runner = createBenchmarkRunner({ providers: [{ name: 'fake', search }] })
+
+    const [freshRow, cachedRow] = await runner.run([{ id: 'same' }, { id: 'same' }], () => ['q'])
+
+    expect(freshRow.errors).toEqual([expect.objectContaining({ message: 'bad', status: 400 })])
+    expect(cachedRow).toMatchObject({
+      errors: [], requestCount: 0, attemptCount: 0, retryCount: 0, cacheHits: 1,
+    })
+    expect(search).toHaveBeenCalledTimes(1)
+  })
+
+  it('重复 provider name 在创建执行器时给出清晰错误', () => {
+    const provider = (name) => ({ name, search: vi.fn(async () => ({ candidates: [] })) })
+
+    expect(() => createBenchmarkRunner({ providers: [provider('same'), provider('same')] }))
+      .toThrow('Duplicate provider name: same')
+  })
+
+  it('负数 retries 规范化为 0，不产生额外尝试', async () => {
+    const search = vi.fn(async () => { throw Object.assign(new Error('down'), { status: 503 }) })
+    const sleep = vi.fn(async () => {})
+    const runner = createBenchmarkRunner({ providers: [{ name: 'fake', search }], retries: -10, sleep })
+
+    const result = await runner.searchOnce({ query: 'q', place: { id: 'a' } }, 'fake')
+
+    expect(result).toMatchObject({ attemptCount: 1, retryCount: 0 })
+    expect(search).toHaveBeenCalledTimes(1)
+    expect(sleep).not.toHaveBeenCalled()
   })
 })

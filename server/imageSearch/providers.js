@@ -5,6 +5,10 @@ const OPENVERSE_URL = 'https://api.openverse.org/v1/images/'
 const BRAVE_URL = 'https://api.search.brave.com/res/v1/images/search'
 const MAPILLARY_URL = 'https://graph.mapillary.com/images'
 
+function withSignal(options, signal) {
+  return signal ? { ...options, signal } : options
+}
+
 function stringValue(value) {
   if (typeof value === 'string') return value.trim()
   if (typeof value === 'number' || typeof value === 'bigint') return String(value)
@@ -158,7 +162,7 @@ function mapillaryBboxes({ lng, lat }) {
 export function createPixabayProvider({ apiKey, fetchImpl = fetch } = {}) {
   return {
     name: 'pixabay',
-    async search({ query }) {
+    async search({ query, signal }) {
       if (!apiKey) return { skipped: true, reason: 'missing-credentials' }
       const startedAt = Date.now()
       const url = new URL(PIXABAY_URL)
@@ -169,7 +173,9 @@ export function createPixabayProvider({ apiKey, fetchImpl = fetch } = {}) {
       url.searchParams.set('orientation', 'horizontal')
       url.searchParams.set('per_page', '20')
       url.searchParams.set('safesearch', 'true')
-      const response = await fetchImpl(url.toString())
+      const response = signal
+        ? await fetchImpl(url.toString(), { signal })
+        : await fetchImpl(url.toString())
       if (!response.ok) throw upstreamError('Pixabay', response.status)
       const data = await readJson(response, 'Pixabay')
       return {
@@ -188,9 +194,10 @@ export function createPixabayProvider({ apiKey, fetchImpl = fetch } = {}) {
 export function createCommonsProvider({ fetchImpl = fetch } = {}) {
   return {
     name: 'commons',
-    async search({ query }) {
+    async search({ query, signal }) {
       const startedAt = Date.now()
-      const hits = await searchCommonsImages({ q: query }, preserveCommonsJsonErrors(fetchImpl))
+      const fetchWithSignal = (url, options = {}) => fetchImpl(url, withSignal(options, signal))
+      const hits = await searchCommonsImages({ q: query }, preserveCommonsJsonErrors(fetchWithSignal))
       return {
         candidates: normalizeCandidates('commons', hits, (hit) => ({
           id: hit.id,
@@ -211,12 +218,14 @@ export function createCommonsProvider({ fetchImpl = fetch } = {}) {
 export function createOpenverseProvider({ fetchImpl = fetch } = {}) {
   return {
     name: 'openverse',
-    async search({ query }) {
+    async search({ query, signal }) {
       const startedAt = Date.now()
       const url = new URL(OPENVERSE_URL)
       url.searchParams.set('q', stringValue(query))
       url.searchParams.set('page_size', '20')
-      const response = await fetchImpl(url.toString())
+      const response = signal
+        ? await fetchImpl(url.toString(), { signal })
+        : await fetchImpl(url.toString())
       if (!response.ok) throw upstreamError('Openverse', response.status)
       const data = await readJson(response, 'Openverse')
       return {
@@ -241,16 +250,16 @@ export function createOpenverseProvider({ fetchImpl = fetch } = {}) {
 export function createBraveProvider({ apiKey, fetchImpl = fetch } = {}) {
   return {
     name: 'brave',
-    async search({ query }) {
+    async search({ query, signal }) {
       if (!apiKey) return { skipped: true, reason: 'missing-credentials' }
       const startedAt = Date.now()
       const url = new URL(BRAVE_URL)
       url.searchParams.set('q', stringValue(query))
       url.searchParams.set('count', '20')
       url.searchParams.set('safesearch', 'strict')
-      const response = await fetchImpl(url.toString(), {
+      const response = await fetchImpl(url.toString(), withSignal({
         headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey },
-      })
+      }, signal))
       if (!response.ok) throw upstreamError('Brave', response.status)
       const data = await readJson(response, 'Brave')
       return {
@@ -275,7 +284,7 @@ export function createBraveProvider({ apiKey, fetchImpl = fetch } = {}) {
 export function createMapillaryProvider({ accessToken, fetchImpl = fetch } = {}) {
   return {
     name: 'mapillary',
-    async search({ place }) {
+    async search({ place, signal }) {
       if (!accessToken) return { skipped: true, reason: 'missing-credentials' }
       if (!validCoordinates(place?.coordinates)) return { skipped: true, reason: 'missing-coordinates' }
       const startedAt = Date.now()
@@ -286,9 +295,9 @@ export function createMapillaryProvider({ accessToken, fetchImpl = fetch } = {})
         url.searchParams.set('fields', 'id,thumb_2048_url,computed_geometry,captured_at')
         let response
         try {
-          response = await fetchImpl(url.toString(), {
+          response = await fetchImpl(url.toString(), withSignal({
             headers: { Authorization: `OAuth ${accessToken}` },
-          })
+          }, signal))
         } catch {
           throw upstreamError('Mapillary', 502)
         }
