@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createBenchmarkRunner } from './benchmarkRunner.js'
+import { createMapillaryProvider } from './providers.js'
 
 describe('搜图基准执行器', () => {
   it('同一来源、地点和查询的并发请求只访问上游一次', async () => {
@@ -313,7 +314,7 @@ describe('搜图基准执行器', () => {
     expect(search).toHaveBeenCalledTimes(3)
   })
 
-  it('并发请求乱序完成时仍按请求序号判断连续失败', async () => {
+  it('并发请求按完成顺序计算连续失败，不等待更早的悬挂请求', async () => {
     const deferred = () => {
       let resolve
       let reject
@@ -323,10 +324,10 @@ describe('搜图基准执行器', () => {
       })
       return { promise, resolve, reject }
     }
-    const firstFailure = deferred()
-    const middleSuccess = deferred()
-    const lastFailure = deferred()
-    const pending = { first: firstFailure, middle: middleSuccess, last: lastFailure }
+    const firstSuccess = deferred()
+    const secondFailure = deferred()
+    const thirdFailure = deferred()
+    const pending = { first: firstSuccess, second: secondFailure, third: thirdFailure }
     const search = vi.fn(({ query }) => pending[query]?.promise
       || Promise.resolve({ candidates: [], elapsedMs: 1 }))
     const runner = createBenchmarkRunner({
@@ -334,16 +335,18 @@ describe('搜图基准执行器', () => {
     })
 
     const first = runner.searchOnce({ query: 'first', place: { id: 'a' } }, 'fake')
-    const middle = runner.searchOnce({ query: 'middle', place: { id: 'b' } }, 'fake')
-    const last = runner.searchOnce({ query: 'last', place: { id: 'c' } }, 'fake')
-    firstFailure.reject(Object.assign(new Error('first'), { status: 400 }))
-    lastFailure.reject(Object.assign(new Error('last'), { status: 400 }))
-    middleSuccess.resolve({ candidates: [], elapsedMs: 1 })
-    await Promise.all([first, middle, last])
+    const second = runner.searchOnce({ query: 'second', place: { id: 'b' } }, 'fake')
+    const third = runner.searchOnce({ query: 'third', place: { id: 'c' } }, 'fake')
+    secondFailure.reject(Object.assign(new Error('second'), { status: 400 }))
+    thirdFailure.reject(Object.assign(new Error('third'), { status: 400 }))
+    await Promise.all([second, third])
 
     const after = await runner.searchOnce({ query: 'after', place: { id: 'd' } }, 'fake')
-    expect(after).not.toHaveProperty('skipped')
-    expect(search).toHaveBeenCalledTimes(4)
+    firstSuccess.resolve({ candidates: [], elapsedMs: 1 })
+    await first
+
+    expect(after).toMatchObject({ skipped: true, reason: 'circuit-open' })
+    expect(search).toHaveBeenCalledTimes(3)
   })
 
   it('来源忽略 signal 并永久悬挂时仍会超时、abort 并结束请求', async () => {
@@ -518,5 +521,104 @@ describe('搜图基准执行器', () => {
     expect(result).toMatchObject({ attemptCount: 1, retryCount: 0 })
     expect(search).toHaveBeenCalledTimes(1)
     expect(sleep).not.toHaveBeenCalled()
+  })
+
+  it('首个请求悬挂时两个快速最终失败仍会熔断大量后续 jobs', async () => {
+    let releaseFirst
+    const firstGate = new Promise((resolve) => { releaseFirst = resolve })
+    let callCount = 0
+    const search = vi.fn(async () => {
+      callCount += 1
+      if (callCount === 1) return firstGate
+      throw Object.assign(new Error('down'), { status: 400 })
+    })
+    const runner = createBenchmarkRunner({
+      providers: [{ name: 'fake', search }],
+      concurrency: 3,
+      retries: 0,
+      failureThreshold: 2,
+      requestTimeoutMs: 1000,
+    })
+    const places = Array.from({ length: 100 }, (_, index) => ({ id: `place-${index}` }))
+
+    const running = runner.run(places, () => ['q'])
+    await vi.waitFor(() => expect(search.mock.calls.length).toBeGreaterThanOrEqual(3))
+    await new Promise((resolve) => setImmediate(resolve))
+    releaseFirst({ candidates: [], elapsedMs: 1 })
+    const rows = await running
+
+    expect(rows).toHaveLength(100)
+    expect(search.mock.calls.length).toBeLessThanOrEqual(3)
+    expect(rows.filter((row) => row.skipped === 'circuit-open').length).toBeGreaterThanOrEqual(97)
+  })
+
+  it('provider cacheKey 合并上游请求，但缓存候选仍按当前 place 重新判定', async () => {
+    const coordinates = { lng: 95.1, lat: 30.2 }
+    const firstPlace = {
+      id: 'midui', canonicalName: '米堆冰川', aliases: [], adminPath: ['西藏自治区', '林芝市', '波密县'],
+      nearbyLandmarks: [], roadRefs: [], negativeTerms: [], nodeType: 'natural-landmark', coordinates,
+    }
+    const secondPlace = {
+      id: 'sister', canonicalName: '姊妹湖', aliases: [], adminPath: ['四川省', '甘孜州', '巴塘县'],
+      nearbyLandmarks: [], roadRefs: [], negativeTerms: [], nodeType: 'natural-landmark', coordinates,
+    }
+    const search = vi.fn(async () => ({ candidates: [{
+      provider: 'geo', id: 'photo', title: '米堆冰川', description: '波密县',
+      imageUrl: 'https://img.example/photo.jpg',
+    }] }))
+    const provider = {
+      name: 'geo',
+      cacheKey: ({ place }) => `${place.coordinates.lng},${place.coordinates.lat}`,
+      search,
+    }
+    const runner = createBenchmarkRunner({ providers: [provider], concurrency: 2 })
+
+    const [firstRow, secondRow] = await runner.run([firstPlace, secondPlace], (place) => [`query-${place.id}`])
+
+    expect(search).toHaveBeenCalledTimes(1)
+    expect(firstRow).toMatchObject({ requestCount: 1, attemptCount: 1, cacheHits: 0 })
+    expect(secondRow).toMatchObject({ requestCount: 0, attemptCount: 0, cacheHits: 1 })
+    expect(firstRow.exact).toHaveLength(1)
+    expect(secondRow.exact).toHaveLength(0)
+    expect(secondRow.rejected).toHaveLength(1)
+  })
+
+  it('run 收到非数组 places 时安全返回空结果', async () => {
+    const runner = createBenchmarkRunner({
+      providers: [{ name: 'fake', search: vi.fn(async () => ({ candidates: [] })) }],
+    })
+
+    await expect(runner.run(undefined, () => ['q'])).resolves.toEqual([])
+    await expect(runner.run({ id: 'not-an-array' }, () => ['q'])).resolves.toEqual([])
+  })
+
+  it('searchOnce 收到 undefined input 时返回结构化错误', async () => {
+    const search = vi.fn(async () => ({ candidates: [] }))
+    const runner = createBenchmarkRunner({ providers: [{ name: 'fake', search }] })
+
+    await expect(runner.searchOnce(undefined, 'fake')).resolves.toMatchObject({
+      error: 'Invalid benchmark search input',
+      status: 'invalid-input',
+      attemptCount: 0,
+      retryCount: 0,
+      cacheHit: false,
+    })
+    expect(search).not.toHaveBeenCalled()
+  })
+
+  it('Mapillary 同一坐标的不同查询只产生一次逻辑请求和一次上游 attempt', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: [] }) }))
+    const provider = createMapillaryProvider({ accessToken: 'token', fetchImpl })
+    const coordinates = { lng: 101.55, lat: 30.04 }
+    const runner = createBenchmarkRunner({ providers: [provider], concurrency: 2 })
+
+    const [freshRow, cachedRow] = await runner.run([
+      { id: 'first', canonicalName: '甲', coordinates },
+      { id: 'second', canonicalName: '乙', coordinates: { ...coordinates } },
+    ], (place) => [`query-${place.id}`])
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(freshRow).toMatchObject({ requestCount: 1, attemptCount: 1, cacheHits: 0 })
+    expect(cachedRow).toMatchObject({ requestCount: 0, attemptCount: 0, cacheHits: 1 })
   })
 })

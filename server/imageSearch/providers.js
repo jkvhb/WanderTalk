@@ -284,6 +284,10 @@ export function createBraveProvider({ apiKey, fetchImpl = fetch } = {}) {
 export function createMapillaryProvider({ accessToken, fetchImpl = fetch } = {}) {
   return {
     name: 'mapillary',
+    cacheKey({ place } = {}) {
+      if (!validCoordinates(place?.coordinates)) return 'missing-coordinates'
+      return `bbox:${mapillaryBboxes(place.coordinates).map((bbox) => bbox.join(',')).join('|')}`
+    },
     async search({ place, signal }) {
       if (!accessToken) return { skipped: true, reason: 'missing-credentials' }
       if (!validCoordinates(place?.coordinates)) return { skipped: true, reason: 'missing-coordinates' }

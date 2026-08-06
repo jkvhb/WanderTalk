@@ -508,4 +508,17 @@ describe('benchmark image search providers', () => {
       expect(fetchImpl.mock.calls[0][1]?.signal).toBe(controller.signal)
     }
   })
+
+  it('Mapillary cacheKey depends on coordinate bbox semantics rather than query text', () => {
+    const provider = createMapillaryProvider({ accessToken: 'token', fetchImpl: vi.fn() })
+    const coordinates = { lng: 101.55, lat: 30.04 }
+
+    const first = provider.cacheKey({ query: 'first query', place: { coordinates } })
+    const second = provider.cacheKey({ query: 'different query', place: { coordinates: { ...coordinates } } })
+    const elsewhere = provider.cacheKey({ query: 'first query', place: { coordinates: { lng: 101.56, lat: 30.04 } } })
+
+    expect(first).toBe(second)
+    expect(first).not.toBe(elsewhere)
+    expect(first).not.toContain('query')
+  })
 })

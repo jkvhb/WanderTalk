@@ -89,9 +89,6 @@ export function createBenchmarkRunner({
   const byName = new Map(providers.map((provider) => [provider.name, provider]))
   const cache = new Map()
   const sourceStates = new Map(providers.map((provider) => [provider.name, {
-    nextSequence: 0,
-    nextOutcomeToApply: 0,
-    outcomes: new Map(),
     consecutiveFailures: 0,
     open: false,
   }]))
@@ -100,19 +97,12 @@ export function createBenchmarkRunner({
   const normalizedFailureThreshold = atLeastOneInteger(failureThreshold, 3)
   const normalizedRequestTimeoutMs = positiveInteger(requestTimeoutMs, 15000)
 
-  function recordOutcome(state, sequence, outcome) {
-    // Providers remain concurrent. Outcomes are applied in request-start order so network
-    // completion order cannot invent or erase a consecutive failure streak. Requests already
-    // started before the threshold is observed finish normally; later requests are skipped.
-    state.outcomes.set(sequence, outcome)
-    while (state.outcomes.has(state.nextOutcomeToApply)) {
-      const completed = state.outcomes.get(state.nextOutcomeToApply)
-      state.outcomes.delete(state.nextOutcomeToApply)
-      state.nextOutcomeToApply += 1
-      if (completed === 'failure') state.consecutiveFailures += 1
-      else if (completed === 'success') state.consecutiveFailures = 0
-      if (state.consecutiveFailures >= normalizedFailureThreshold) state.open = true
-    }
+  function recordOutcome(state, outcome) {
+    // Completion-order semantics prevent an earlier hanging request from blocking protection.
+    // Already-started requests finish normally; once open, only later requests are skipped.
+    if (outcome === 'failure') state.consecutiveFailures += 1
+    else if (outcome === 'success') state.consecutiveFailures = 0
+    if (state.consecutiveFailures >= normalizedFailureThreshold) state.open = true
   }
 
   async function searchOnce(input, providerName) {
@@ -128,7 +118,26 @@ export function createBenchmarkRunner({
         cacheHit: false,
       }
     }
-    const key = `${providerName}|${input.place?.id || ''}|${input.query || ''}`
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      return {
+        error: 'Invalid benchmark search input',
+        status: 'invalid-input', attemptCount: 0, retryCount: 0,
+        timeoutCount: 0, statusCounts: {}, cacheHit: false,
+      }
+    }
+    let fingerprint
+    try {
+      fingerprint = typeof provider.cacheKey === 'function'
+        ? provider.cacheKey(input)
+        : JSON.stringify([input?.place?.id || '', input?.query || ''])
+    } catch (error) {
+      return {
+        error: `Provider cacheKey failed: ${error instanceof Error ? error.message : String(error)}`,
+        status: 'cache-key-error', attemptCount: 0, retryCount: 0,
+        timeoutCount: 0, statusCounts: {}, cacheHit: false,
+      }
+    }
+    const key = `${providerName}|${String(fingerprint ?? '')}`
     const cached = cache.get(key)
     if (cached) return { ...await cached, cacheHit: true }
 
@@ -141,8 +150,6 @@ export function createBenchmarkRunner({
       cache.set(key, skipped)
       return { ...await skipped, cacheHit: false }
     }
-    const sequence = state.nextSequence
-    state.nextSequence += 1
     const execute = async () => {
       let attempt = 0
       let attemptCount = 0
@@ -207,7 +214,7 @@ export function createBenchmarkRunner({
       }
     }
     const pending = execute().then((result) => {
-      recordOutcome(state, sequence, result.error ? 'failure' : result.skipped ? 'neutral' : 'success')
+      recordOutcome(state, result.error ? 'failure' : result.skipped ? 'neutral' : 'success')
       return result
     })
     cache.set(key, pending)
@@ -216,6 +223,7 @@ export function createBenchmarkRunner({
   }
 
   async function run(places, queryBuilder) {
+    if (!Array.isArray(places)) return []
     const jobs = places.flatMap((place) => providers.map((provider) => ({ place, providerName: provider.name })))
     return runPool(jobs, async ({ place, providerName }) => {
       const row = {
