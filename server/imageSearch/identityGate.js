@@ -1,6 +1,7 @@
-const TEXT_FIELDS = ['title', 'description', 'sourcePage', 'publisher']
+const TEXT_FIELDS = ['title', 'description', 'publisher']
 const GENERIC_CLASS_TERMS = new Set([
   'bridge', '桥', 'snowmountain', '雪山', 'lake', '湖泊', 'temple', '寺庙', 'plateau', '高原',
+  'museum', '博物馆',
 ])
 
 function normalizeText(value) {
@@ -23,8 +24,8 @@ function stringList(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : []
 }
 
-function candidateText(candidate) {
-  if (candidate === null || typeof candidate !== 'object') return ''
+function candidateTextFields(candidate) {
+  if (candidate === null || typeof candidate !== 'object') return []
 
   const tags = Array.isArray(candidate.tags)
     ? candidate.tags.map((tag) => (typeof tag === 'string' ? tag : tag?.name))
@@ -32,7 +33,6 @@ function candidateText(candidate) {
 
   return [...TEXT_FIELDS.map((field) => candidate[field]), ...tags]
     .filter((value) => typeof value === 'string')
-    .join(' ')
 }
 
 function containsTerm(text, term) {
@@ -40,10 +40,29 @@ function containsTerm(text, term) {
   return Boolean(normalizedTerm) && normalizeText(text).includes(normalizedTerm)
 }
 
-function hasNameEvidence(place, text) {
-  return [place?.canonicalName, ...stringList(place?.aliases)].find((name) => {
-    const normalizedName = normalizeText(name)
-    return normalizedName && !GENERIC_CLASS_TERMS.has(normalizedName) && containsTerm(text, name)
+function containsRoadRef(text, roadRef) {
+  if (typeof roadRef !== 'string' || !roadRef.trim()) return false
+  const escaped = roadRef.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?=$|[^a-z0-9])`, 'iu').test(text.normalize('NFKC'))
+}
+
+function hasNameEvidence(place, text, fields) {
+  const canonicalName = place?.canonicalName
+  const normalizedCanonical = normalizeText(canonicalName)
+  if (normalizedCanonical
+    && !GENERIC_CLASS_TERMS.has(normalizedCanonical)
+    && containsTerm(text, canonicalName)) {
+    return canonicalName
+  }
+
+  return stringList(place?.aliases).find((alias) => {
+    const normalizedAlias = normalizeText(alias)
+    if (!normalizedAlias || GENERIC_CLASS_TERMS.has(normalizedAlias)) return false
+
+    return fields.some((field) => normalizeText(field) === normalizedAlias
+      || field
+        .split(/[\p{P}\p{S}\s]+/u)
+        .some((token) => normalizeText(token) === normalizedAlias))
   })
 }
 
@@ -51,8 +70,8 @@ function hasContextEvidence(place, text) {
   return [
     ...stringList(place?.adminPath),
     ...stringList(place?.nearbyLandmarks),
-    ...stringList(place?.roadRefs),
   ].some((term) => containsTerm(text, term))
+    || stringList(place?.roadRefs).some((roadRef) => containsRoadRef(text, roadRef))
 }
 
 function validCoordinates(value) {
@@ -79,12 +98,13 @@ function distanceMetres(first, second) {
 }
 
 export function evaluatePlaceIdentity(place, candidate) {
-  const text = candidateText(candidate)
+  const fields = candidateTextFields(candidate)
+  const text = fields.join(' ')
   if (stringList(place?.negativeTerms).some((term) => containsTerm(text, term))) {
     return { status: 'rejected', reason: 'negative-evidence', evidence: [] }
   }
 
-  const matchedName = hasNameEvidence(place, text)
+  const matchedName = hasNameEvidence(place, text, fields)
   const textWithoutName = matchedName
     ? normalizeText(text).replaceAll(normalizeText(matchedName), '')
     : text
@@ -95,7 +115,7 @@ export function evaluatePlaceIdentity(place, candidate) {
 
   if (place?.nodeType === 'road-node') {
     const roadRefs = stringList(place?.roadRefs)
-    const everyRoadRef = roadRefs.length > 0 && roadRefs.every((roadRef) => containsTerm(text, roadRef))
+    const everyRoadRef = roadRefs.length > 0 && roadRefs.every((roadRef) => containsRoadRef(text, roadRef))
     if (closeCoordinates && everyRoadRef) {
       return { status: 'exact', reason: 'geo-and-road-evidence', evidence: ['coordinates', 'roadRefs'] }
     }
@@ -149,10 +169,16 @@ export function buildPlaceQueries(place) {
   const canonicalName = typeof place?.canonicalName === 'string' ? place.canonicalName.trim() : ''
   if (!canonicalName) return []
 
-  const region = [...stringList(place?.adminPath)]
-    .reverse()
-    .find((term) => /(?:县|市|区)$/u.test(term.trim()))
-    ?.trim()
+  const regions = stringList(place?.adminPath).reduce((result, term) => {
+    const trimmed = term.trim()
+    const normalized = normalizeText(trimmed)
+    if (/(?:县|市|区)$/u.test(trimmed)
+      && !/(?:省|自治区|自治州)$/u.test(trimmed)
+      && !result.some((region) => normalizeText(region) === normalized)) {
+      result.push(trimmed)
+    }
+    return result
+  }, []).slice(-2)
   const aliases = stringList(place?.aliases).filter((alias, index, all) => {
     const normalized = normalizeText(alias.trim())
     return normalized
@@ -161,11 +187,16 @@ export function buildPlaceQueries(place) {
   })
   const nearby = firstDistinct(place?.nearbyLandmarks, [canonicalName])
   const roadRef = firstDistinct(place?.roadRefs)
+  const primaryRegion = regions[0]
+  const canonicalRegionQueries = regions.length > 0
+    ? regions.map((region) => queryFrom(canonicalName, region))
+    : [queryFrom(canonicalName)]
   const proposed = [
-    queryFrom(canonicalName, region),
-    ...aliases.map((alias) => queryFrom(alias, region)),
+    ...canonicalRegionQueries,
+    queryFrom(aliases[0], primaryRegion),
     queryFrom(canonicalName, nearby),
     queryFrom(canonicalName, roadRef),
+    ...aliases.slice(1).map((alias) => queryFrom(alias, primaryRegion)),
   ]
   const seen = new Set()
 

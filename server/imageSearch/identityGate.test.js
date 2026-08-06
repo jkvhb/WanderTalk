@@ -30,6 +30,17 @@ describe('evaluatePlaceIdentity', () => {
     }
   })
 
+  it('rejects a same-category glacier candidate carrying a known wrong location', () => {
+    expect(evaluatePlaceIdentity(placeById('midui-glacier'), {
+      title: '米堆冰川与来古冰川',
+      description: '波密县冰川旅行',
+    })).toEqual({
+      status: 'rejected',
+      reason: 'negative-evidence',
+      evidence: [],
+    })
+  })
+
   it('never treats generic class words in English, Chinese or tags as a place name', () => {
     const bridge = placeById('jinsha-river-bridge-zhubalong')
     const museum = placeById('chengdu-museum')
@@ -43,7 +54,7 @@ describe('evaluatePlaceIdentity', () => {
       expect(evaluatePlaceIdentity(museum, { title: generic, description: '成都' }).status).not.toBe('exact')
     }
 
-    for (const generic of ['bridge', '桥', 'snow mountain', '雪山', 'lake', '湖泊', 'temple', '寺庙', 'plateau', '高原']) {
+    for (const generic of ['bridge', '桥', 'snow mountain', '雪山', 'lake', '湖泊', 'temple', '寺庙', 'plateau', '高原', 'museum', '博物馆']) {
       expect(evaluatePlaceIdentity({
         canonicalName: generic,
         aliases: [],
@@ -64,6 +75,22 @@ describe('evaluatePlaceIdentity', () => {
       reason: 'insufficient-independent-evidence',
       evidence: ['name'],
     })
+  })
+
+  it('does not treat a short alias embedded in another CJK proper name as name evidence', () => {
+    const village = placeById('xiazetong-village')
+
+    expect(evaluatePlaceIdentity(village, { title: '上则通村', description: '理塘县' })).toEqual({
+      status: 'rejected',
+      reason: 'insufficient-identity-evidence',
+      evidence: [],
+    })
+    expect(evaluatePlaceIdentity(village, { title: '则通村', description: '理塘县' })).toEqual({
+      status: 'exact',
+      reason: 'name-and-context-evidence',
+      evidence: ['name', 'context'],
+    })
+    expect(evaluatePlaceIdentity(village, { title: '航拍：则通村；川西村落', description: '理塘县' }).status).toBe('exact')
   })
 
   it('uses close coordinates and every configured road reference as the road-node hard gate', () => {
@@ -91,6 +118,19 @@ describe('evaluatePlaceIdentity', () => {
       status: 'rejected',
       reason: 'insufficient-identity-evidence',
       evidence: [],
+    })
+  })
+
+  it('requires exact alphanumeric road-reference boundaries', () => {
+    const junction = placeById('yingguancun-g318-g248-junction')
+
+    expect(evaluatePlaceIdentity(junction, {
+      description: 'Junction of G3180 and G2489',
+      coordinates: { lng: 101.547, lat: 30.038 },
+    })).toEqual({
+      status: 'needs_review',
+      reason: 'close-coordinate-only',
+      evidence: ['coordinates'],
     })
   })
 
@@ -160,6 +200,18 @@ describe('evaluatePlaceIdentity', () => {
       evidence: [],
     })
   })
+
+  it('does not turn percent-encoded source-page metadata into identity evidence', () => {
+    const result = evaluatePlaceIdentity(placeById('midui-glacier'), {
+      sourcePage: 'https://example.test/%E7%B1%B3%E5%A0%86%E5%86%B0%E5%B7%9D?where=%E6%B3%A2%E5%AF%86%E5%8E%BF',
+    })
+
+    expect(result).toEqual({
+      status: 'rejected',
+      reason: 'insufficient-identity-evidence',
+      evidence: [],
+    })
+  })
 })
 
 describe('buildPlaceQueries', () => {
@@ -168,9 +220,9 @@ describe('buildPlaceQueries', () => {
     const first = buildPlaceQueries(place)
 
     expect(first).toEqual([
+      '金沙江大桥（竹巴笼） 巴塘县',
       '金沙江大桥（竹巴笼） 芒康县',
-      '竹巴笼金沙江大桥 芒康县',
-      '金沙江大桥 芒康县',
+      '竹巴笼金沙江大桥 巴塘县',
       '金沙江大桥（竹巴笼） 竹巴笼',
       '金沙江大桥（竹巴笼） G318',
     ])
@@ -195,6 +247,24 @@ describe('buildPlaceQueries', () => {
       '格聂神山 G318',
     ])
     expect(queries.join(' ')).not.toMatch(/高原风光|雪山草原|beautiful bridge/i)
+  })
+
+  it('reserves nearby and road queries before optional aliases consume the limit', () => {
+    const queries = buildPlaceQueries({
+      canonicalName: '测试地',
+      aliases: ['别名一', '别名二', '别名三', '别名四'],
+      adminPath: ['中国', '四川省', '理塘县'],
+      nearbyLandmarks: ['附近地标'],
+      roadRefs: ['G318'],
+    })
+
+    expect(queries).toEqual([
+      '测试地 理塘县',
+      '别名一 理塘县',
+      '测试地 附近地标',
+      '测试地 G318',
+      '别名二 理塘县',
+    ])
   })
 
   it('keeps query invariants for every benchmark place', () => {
