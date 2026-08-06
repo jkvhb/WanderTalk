@@ -54,6 +54,40 @@ describe('evaluatePlaceIdentity', () => {
     expect(evaluatePlaceIdentity(place, { title: '本地地标', description: adminTerm }).status).toBe('exact')
   })
 
+  it('uses ordered admin hierarchy and rejects broad-only context', () => {
+    const makePlace = (adminPath) => ({
+      canonicalName: '层级地标',
+      aliases: [],
+      adminPath,
+      nearbyLandmarks: [],
+      roadRefs: [],
+      negativeTerms: [],
+      nodeType: 'named-landmark',
+    })
+    const review = {
+      status: 'needs_review',
+      reason: 'insufficient-independent-evidence',
+      evidence: ['name'],
+    }
+
+    expect(evaluatePlaceIdentity(makePlace(['中国', '四川省', '甘孜州']), {
+      title: '层级地标',
+      publisher: '甘孜州摄影网',
+    })).toEqual(review)
+    expect(evaluatePlaceIdentity(makePlace(['France']), {
+      title: '层级地标',
+      publisher: 'France Photography',
+    })).toEqual(review)
+    expect(evaluatePlaceIdentity(makePlace(['France', 'Paris']), {
+      title: '层级地标',
+      publisher: 'France Photography',
+    })).toEqual(review)
+    expect(evaluatePlaceIdentity(makePlace(['France', 'Paris']), {
+      title: '层级地标',
+      description: 'Paris',
+    }).status).toBe('exact')
+  })
+
   it('rejects negative evidence before otherwise matching identity evidence', () => {
     const place = placeById('jinsha-river-bridge-zhubalong')
 
@@ -392,6 +426,21 @@ describe('buildPlaceQueries', () => {
       '独特地标 Example City',
       '真实别名 Example City',
     ])
+  })
+
+  it('uses only non-broad terms below the first ordered admin layer in queries', () => {
+    const makePlace = (adminPath) => ({
+      canonicalName: '层级地标',
+      aliases: [],
+      adminPath,
+      nearbyLandmarks: [],
+      roadRefs: [],
+    })
+
+    expect(buildPlaceQueries(makePlace(['中国', '四川省', '甘孜州']))).toEqual([])
+    expect(buildPlaceQueries(makePlace(['France']))).toEqual([])
+    expect(buildPlaceQueries(makePlace(['France', 'Paris']))).toEqual(['层级地标 Paris'])
+    expect(buildPlaceQueries(makePlace(['Example City']))).toEqual(['层级地标 Example City'])
   })
 
   it('builds deterministic, unique, identity-rich queries capped at five', () => {

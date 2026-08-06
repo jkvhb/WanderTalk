@@ -7,9 +7,6 @@ const SAFE_NAME_SUFFIXES = [
   '景区', '风景区', '实景', '照片', '图片', '航拍', '夜景', '风光', '游记', '攻略',
 ]
 const SAFE_NAME_PREFIXES = ['航拍', '实拍', '探访', '走进']
-const BROAD_ADMIN_TERMS = new Set([
-  '中国', '中华人民共和国', 'china', 'peoplesrepublicofchina', 'prc',
-])
 
 function normalizeText(value) {
   if (typeof value !== 'string') return ''
@@ -129,12 +126,10 @@ function hasNameEvidence(place, fields) {
   })
 }
 
-function isBroadAdminTerm(term) {
+function hasBroadAdminSuffix(term) {
   const normalized = normalizeText(term)
-  if (!normalized) return true
-  if (BROAD_ADMIN_TERMS.has(normalized)) return true
-  return /(?:省|自治区|自治州)$/u.test(term.trim())
-    || /(?:province|autonomousregion|autonomousprefecture|country|nation|state)$/iu.test(normalized)
+  return /(?:省|自治区|自治州|州|地区|盟)$/u.test(term.trim())
+    || /(?:province|state|autonomousregion|autonomousprefecture|prefecture|region)$/iu.test(normalized)
 }
 
 function isNamedLocalLevel(term) {
@@ -144,8 +139,14 @@ function isNamedLocalLevel(term) {
     || /(?:city|county|district|town|township|village)$/iu.test(normalized)
 }
 
+function usableAdminTerms(adminPath) {
+  const terms = stringList(adminPath).map((term) => term.trim()).filter(Boolean)
+  if (terms.length === 1) return isNamedLocalLevel(terms[0]) ? terms : []
+  return terms.slice(1).filter((term) => !hasBroadAdminSuffix(term))
+}
+
 function hasContextEvidence(place, text) {
-  const localAdminTerms = stringList(place?.adminPath).filter((term) => !isBroadAdminTerm(term))
+  const localAdminTerms = usableAdminTerms(place?.adminPath)
 
   return [
     ...localAdminTerms,
@@ -260,7 +261,7 @@ export function buildPlaceQueries(place) {
   const canonicalName = typeof place?.canonicalName === 'string' ? place.canonicalName.trim() : ''
   if (!canonicalName || GENERIC_CLASS_TERMS.has(normalizeText(canonicalName))) return []
 
-  const preciseAdminTerms = stringList(place?.adminPath).filter((term) => !isBroadAdminTerm(term))
+  const preciseAdminTerms = usableAdminTerms(place?.adminPath)
   const preferredRegions = preciseAdminTerms.some(isNamedLocalLevel)
     ? preciseAdminTerms.filter(isNamedLocalLevel)
     : preciseAdminTerms
