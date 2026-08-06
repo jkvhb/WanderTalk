@@ -55,8 +55,23 @@ function fieldTokens(field) {
 
 function containsCjkName(fields, name) {
   const normalizedName = normalizeText(name)
-  return fields.some((field) => fieldTokens(field).some((token) => token === normalizedName
-    || SAFE_NAME_SUFFIXES.some((suffix) => token === normalizedName + normalizeText(suffix))))
+  const acceptedNames = new Set([
+    normalizedName,
+    ...SAFE_NAME_SUFFIXES.map((suffix) => normalizedName + normalizeText(suffix)),
+  ])
+  const maxLength = Math.max(...[...acceptedNames].map((accepted) => accepted.length))
+
+  return fields.some((field) => {
+    const tokens = fieldTokens(field)
+    return tokens.some((_, start) => {
+      let phrase = ''
+      for (let end = start; end < tokens.length && phrase.length <= maxLength; end += 1) {
+        phrase += tokens[end]
+        if (acceptedNames.has(phrase)) return true
+      }
+      return false
+    })
+  })
 }
 
 function containsAsciiName(fields, name) {

@@ -108,6 +108,34 @@ describe('evaluatePlaceIdentity', () => {
     })
   })
 
+  it('matches complete punctuated CJK names through contiguous delimited tokens only', () => {
+    const place = {
+      canonicalName: '甲地（乙村）',
+      aliases: ['丙地（丁村）'],
+      adminPath: ['示例市'],
+      nearbyLandmarks: [],
+      roadRefs: [],
+      negativeTerms: [],
+      nodeType: 'named-landmark',
+    }
+    const exact = {
+      status: 'exact',
+      reason: 'name-and-context-evidence',
+      evidence: ['name', 'context'],
+    }
+    const rejected = {
+      status: 'rejected',
+      reason: 'insufficient-identity-evidence',
+      evidence: [],
+    }
+
+    expect(evaluatePlaceIdentity(place, { title: '甲地（乙村）', description: '示例市' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: '航拍：甲地（乙村）；照片', description: '示例市' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: '游记：丙地（丁村）', description: '示例市' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: '上甲地（乙村）', description: '示例市' })).toEqual(rejected)
+    expect(evaluatePlaceIdentity(place, { title: '上丙地（丁村）', description: '示例市' })).toEqual(rejected)
+  })
+
   it('matches multiword ASCII names flexibly but enforces alphanumeric boundaries', () => {
     const place = {
       canonicalName: 'Foo Bridge',
