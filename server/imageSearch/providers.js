@@ -1,5 +1,5 @@
 import { searchCommonsImages } from '../commonsImages.js'
-import { searchImages } from '../images.js'
+import { clearSearchCache, searchImages } from '../images.js'
 
 const OPENVERSE_URL = 'https://api.openverse.org/v1/images/'
 const BRAVE_URL = 'https://api.search.brave.com/res/v1/images/search'
@@ -9,6 +9,10 @@ function stringValue(value) {
   if (typeof value === 'string') return value.trim()
   if (typeof value === 'number' || typeof value === 'bigint') return String(value)
   return ''
+}
+
+function firstStringValue(...values) {
+  return values.map(stringValue).find(Boolean) || ''
 }
 
 function tagValues(value) {
@@ -67,6 +71,7 @@ async function readJson(response, provider) {
 
 function malformedJsonError(provider, cause) {
   const error = new Error(`${provider} returned malformed JSON`)
+  error.status = 502
   error.cause = cause
   return error
 }
@@ -107,12 +112,13 @@ function geometryCoordinates(geometry) {
   return validCoordinates({ lng, lat }) ? { lng, lat } : null
 }
 
-export function createPixabayProvider({ apiKey, fetchImpl = fetch }) {
+export function createPixabayProvider({ apiKey, fetchImpl = fetch } = {}) {
   return {
     name: 'pixabay',
     async search({ query }) {
       if (!apiKey) return { skipped: true, reason: 'missing-credentials' }
       const startedAt = Date.now()
+      clearSearchCache()
       const hits = await searchImages(
         { apiKey, q: query, lang: 'zh' },
         preserveJsonErrors(fetchImpl, 'Pixabay'),
@@ -130,7 +136,7 @@ export function createPixabayProvider({ apiKey, fetchImpl = fetch }) {
   }
 }
 
-export function createCommonsProvider({ fetchImpl = fetch }) {
+export function createCommonsProvider({ fetchImpl = fetch } = {}) {
   return {
     name: 'commons',
     async search({ query }) {
@@ -153,7 +159,7 @@ export function createCommonsProvider({ fetchImpl = fetch }) {
   }
 }
 
-export function createOpenverseProvider({ fetchImpl = fetch }) {
+export function createOpenverseProvider({ fetchImpl = fetch } = {}) {
   return {
     name: 'openverse',
     async search({ query }) {
@@ -183,7 +189,7 @@ export function createOpenverseProvider({ fetchImpl = fetch }) {
   }
 }
 
-export function createBraveProvider({ apiKey, fetchImpl = fetch }) {
+export function createBraveProvider({ apiKey, fetchImpl = fetch } = {}) {
   return {
     name: 'brave',
     async search({ query }) {
@@ -200,7 +206,7 @@ export function createBraveProvider({ apiKey, fetchImpl = fetch }) {
       const data = await readJson(response, 'Brave')
       return {
         candidates: normalizeCandidates('brave', data?.results, (hit) => ({
-          id: hit.id,
+          id: firstStringValue(hit.id, hit.url, hit.properties?.url, hit.thumbnail?.src),
           title: hit.title,
           description: hit.description,
           tags: hit.tags,
@@ -217,7 +223,7 @@ export function createBraveProvider({ apiKey, fetchImpl = fetch }) {
   }
 }
 
-export function createMapillaryProvider({ accessToken, fetchImpl = fetch }) {
+export function createMapillaryProvider({ accessToken, fetchImpl = fetch } = {}) {
   return {
     name: 'mapillary',
     async search({ place }) {

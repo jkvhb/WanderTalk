@@ -6,6 +6,7 @@ import {
   createOpenverseProvider,
   createPixabayProvider,
 } from './providers'
+import { clearSearchCache, searchImages } from '../images'
 
 const CANDIDATE_KEYS = [
   'author',
@@ -162,6 +163,42 @@ describe('benchmark image search providers', () => {
     expect(options.headers).toEqual({ Accept: 'application/json', 'X-Subscription-Token': 'brave-key' })
   })
 
+  it('retains realistic Brave hits without ids using ordered provider-data fallbacks', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ results: [
+      {
+        title: 'Source page fallback',
+        url: 'https://publisher.example/page',
+        properties: { url: 'https://images.example/full.jpg' },
+        thumbnail: { src: 'https://images.example/thumb.jpg' },
+      },
+      {
+        title: 'Image URL fallback',
+        properties: { url: 'https://images.example/property-only.jpg' },
+      },
+      {
+        title: 'Thumbnail fallback',
+        thumbnail: { src: 'https://images.example/thumbnail-only.jpg' },
+      },
+      {
+        id: '   ',
+        title: 'Unusable id falls through',
+        url: 'https://publisher.example/blank-id',
+        thumbnail: { src: 'https://images.example/blank-id.jpg' },
+      },
+    ] }))
+
+    const result = await createBraveProvider({ apiKey: 'key', fetchImpl })
+      .search({ query: 'provider-only-id', place: { canonicalName: 'Never use this' } })
+
+    expect(result.candidates.map(({ id }) => id)).toEqual([
+      'https://publisher.example/page',
+      'https://images.example/property-only.jpg',
+      'https://images.example/thumbnail-only.jpg',
+      'https://publisher.example/blank-id',
+    ])
+    expect(JSON.stringify(result.candidates)).not.toContain('Never use this')
+  })
+
   it('maps Mapillary API coordinates and capture time without copying target evidence', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ data: [{
       id: 9001,
@@ -224,11 +261,23 @@ describe('benchmark image search providers', () => {
     expect(braveResult.candidates).toEqual([])
   })
 
-  it('turns malformed upstream JSON into a readable error', async () => {
-    const provider = createOpenverseProvider({
+  it.each([
+    ['openverse', () => createOpenverseProvider({
       fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('bad JSON') } })),
+    }), {}],
+    ['brave', () => createBraveProvider({
+      apiKey: 'key',
+      fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('bad JSON') } })),
+    }), {}],
+    ['mapillary', () => createMapillaryProvider({
+      accessToken: 'token',
+      fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('bad JSON') } })),
+    }), { coordinates: { lng: 1, lat: 2 } }],
+  ])('turns malformed %s JSON into a readable 502 error', async (name, makeProvider, place) => {
+    await expect(makeProvider().search({ query: 'x', place })).rejects.toMatchObject({
+      status: 502,
+      message: expect.stringMatching(new RegExp(`${name}.*json`, 'i')),
     })
-    await expect(provider.search({ query: 'x', place: {} })).rejects.toThrow(/openverse.*json/i)
   })
 
   it.each([
@@ -239,9 +288,50 @@ describe('benchmark image search providers', () => {
     ['commons', () => createCommonsProvider({
       fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('bad JSON') } })),
     })],
-  ])('does not let the wrapped %s source hide malformed JSON', async (name, makeProvider) => {
+  ])('does not let the wrapped %s source hide malformed JSON or its 502 status', async (name, makeProvider) => {
     await expect(makeProvider().search({ query: `malformed-${name}`, place: {} }))
-      .rejects.toThrow(new RegExp(`${name}.*json`, 'i'))
+      .rejects.toMatchObject({
+        status: 502,
+        message: expect.stringMatching(new RegExp(`${name}.*json`, 'i')),
+      })
+  })
+
+  it('clears the production Pixabay cache before using the adapter fetch implementation', async () => {
+    clearSearchCache()
+    const firstFetch = vi.fn(async () => jsonResponse({ hits: [{
+      id: 'primed', webformatURL: 'https://images.example/primed.jpg',
+    }] }))
+    const secondFetch = vi.fn(async () => jsonResponse({ hits: [{
+      id: 'fresh', webformatURL: 'https://images.example/fresh.jpg',
+    }] }))
+
+    try {
+      await searchImages({ apiKey: 'key', q: 'cache-isolation-query', lang: 'zh' }, firstFetch)
+      const result = await createPixabayProvider({ apiKey: 'key', fetchImpl: secondFetch })
+        .search({ query: 'cache-isolation-query', place: {} })
+
+      expect(secondFetch).toHaveBeenCalledOnce()
+      expect(result.candidates[0]).toMatchObject({ id: 'fresh', imageUrl: 'https://images.example/fresh.jpg' })
+    } finally {
+      clearSearchCache()
+    }
+  })
+
+  it('constructs every factory safely without arguments', async () => {
+    expect([
+      createPixabayProvider().name,
+      createCommonsProvider().name,
+      createOpenverseProvider().name,
+      createBraveProvider().name,
+      createMapillaryProvider().name,
+    ]).toEqual(['pixabay', 'commons', 'openverse', 'brave', 'mapillary'])
+
+    await expect(createPixabayProvider().search({ query: 'x', place: {} }))
+      .resolves.toEqual({ skipped: true, reason: 'missing-credentials' })
+    await expect(createBraveProvider().search({ query: 'x', place: {} }))
+      .resolves.toEqual({ skipped: true, reason: 'missing-credentials' })
+    await expect(createMapillaryProvider().search({ query: 'x', place: {} }))
+      .resolves.toEqual({ skipped: true, reason: 'missing-credentials' })
   })
 
   it('uses the identical candidate key contract for every provider', async () => {
