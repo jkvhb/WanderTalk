@@ -7,6 +7,9 @@ const SAFE_NAME_SUFFIXES = [
   '景区', '风景区', '实景', '照片', '图片', '航拍', '夜景', '风光', '游记', '攻略',
 ]
 const SAFE_NAME_PREFIXES = ['航拍', '实拍', '探访', '走进']
+const BROAD_ADMIN_TERMS = new Set([
+  '中国', '中华人民共和国', 'china', 'peoplesrepublicofchina', 'prc',
+])
 
 function normalizeText(value) {
   if (typeof value !== 'string') return ''
@@ -126,13 +129,23 @@ function hasNameEvidence(place, fields) {
   })
 }
 
+function isBroadAdminTerm(term) {
+  const normalized = normalizeText(term)
+  if (!normalized) return true
+  if (BROAD_ADMIN_TERMS.has(normalized)) return true
+  return /(?:省|自治区|自治州)$/u.test(term.trim())
+    || /(?:province|autonomousregion|autonomousprefecture|country|nation|state)$/iu.test(normalized)
+}
+
+function isNamedLocalLevel(term) {
+  const trimmed = term.trim()
+  const normalized = normalizeText(trimmed)
+  return /(?:市|县|区|镇|乡|村)$/u.test(trimmed)
+    || /(?:city|county|district|town|township|village)$/iu.test(normalized)
+}
+
 function hasContextEvidence(place, text) {
-  const localAdminTerms = stringList(place?.adminPath).filter((term) => {
-    const trimmed = term.trim()
-    return normalizeText(trimmed) !== normalizeText('中国')
-      && !/(?:省|自治区|自治州)$/u.test(trimmed)
-      && /(?:市|县|区)$/u.test(trimmed)
-  })
+  const localAdminTerms = stringList(place?.adminPath).filter((term) => !isBroadAdminTerm(term))
 
   return [
     ...localAdminTerms,
@@ -247,23 +260,27 @@ export function buildPlaceQueries(place) {
   const canonicalName = typeof place?.canonicalName === 'string' ? place.canonicalName.trim() : ''
   if (!canonicalName || GENERIC_CLASS_TERMS.has(normalizeText(canonicalName))) return []
 
-  const regions = stringList(place?.adminPath).reduce((result, term) => {
+  const preciseAdminTerms = stringList(place?.adminPath).filter((term) => !isBroadAdminTerm(term))
+  const preferredRegions = preciseAdminTerms.some(isNamedLocalLevel)
+    ? preciseAdminTerms.filter(isNamedLocalLevel)
+    : preciseAdminTerms
+  const regions = preferredRegions.reduce((result, term) => {
     const trimmed = term.trim()
     const normalized = normalizeText(trimmed)
-    if (/(?:县|市|区)$/u.test(trimmed)
-      && !/(?:省|自治区|自治州)$/u.test(trimmed)
-      && !result.some((region) => normalizeText(region) === normalized)) {
+    if (!result.some((region) => normalizeText(region) === normalized)) {
       result.push(trimmed)
     }
     return result
   }, []).slice(-2)
-  const aliases = stringList(place?.aliases).filter((alias, index, all) => {
+  const configuredAliases = stringList(place?.aliases)
+  const aliases = configuredAliases.filter((alias, index, all) => {
     const normalized = normalizeText(alias.trim())
     return normalized
       && normalized !== normalizeText(canonicalName)
+      && !GENERIC_CLASS_TERMS.has(normalized)
       && all.findIndex((item) => normalizeText(item.trim()) === normalized) === index
   })
-  const nearby = firstDistinct(place?.nearbyLandmarks, [canonicalName])
+  const nearby = firstDistinct(place?.nearbyLandmarks, [canonicalName, ...configuredAliases])
   const roadRef = firstDistinct(place?.roadRefs)
   const primaryRegion = regions[0]
   const canonicalRegionQueries = regions.map((region) => queryFrom(canonicalName, region))

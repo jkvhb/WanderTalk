@@ -40,6 +40,20 @@ describe('evaluatePlaceIdentity', () => {
     })
   })
 
+  it.each(['格聂镇', '玉普乡', '营官村'])('accepts precise Chinese local admin context: %s', (adminTerm) => {
+    const place = {
+      canonicalName: '本地地标',
+      aliases: [],
+      adminPath: ['中国', '四川省', adminTerm],
+      nearbyLandmarks: [],
+      roadRefs: [],
+      negativeTerms: [],
+      nodeType: 'named-landmark',
+    }
+
+    expect(evaluatePlaceIdentity(place, { title: '本地地标', description: adminTerm }).status).toBe('exact')
+  })
+
   it('rejects negative evidence before otherwise matching identity evidence', () => {
     const place = placeById('jinsha-river-bridge-zhubalong')
 
@@ -177,7 +191,7 @@ describe('evaluatePlaceIdentity', () => {
     const place = {
       canonicalName: 'Foo Bridge',
       aliases: ['Bar Crossing'],
-      adminPath: ['示例市'],
+      adminPath: ['Example City'],
       nearbyLandmarks: [],
       roadRefs: [],
       negativeTerms: [],
@@ -194,11 +208,11 @@ describe('evaluatePlaceIdentity', () => {
       evidence: [],
     }
 
-    expect(evaluatePlaceIdentity(place, { title: 'Photo of Foo Bridge', description: '示例市' })).toEqual(exact)
-    expect(evaluatePlaceIdentity(place, { title: 'Photo of Foo—Bridge', description: '示例市' })).toEqual(exact)
-    expect(evaluatePlaceIdentity(place, { title: 'Photo of Bar Crossing', description: '示例市' })).toEqual(exact)
-    expect(evaluatePlaceIdentity(place, { title: 'Foo Bridge2', description: '示例市' })).toEqual(rejected)
-    expect(evaluatePlaceIdentity(place, { title: 'XFoo Bridge', description: '示例市' })).toEqual(rejected)
+    expect(evaluatePlaceIdentity(place, { title: 'Photo of Foo Bridge', description: 'Example City' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: 'Photo of Foo—Bridge', description: 'Example City' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: 'Photo of Bar Crossing', description: 'Example City' })).toEqual(exact)
+    expect(evaluatePlaceIdentity(place, { title: 'Foo Bridge2', description: 'Example City' })).toEqual(rejected)
+    expect(evaluatePlaceIdentity(place, { title: 'XFoo Bridge', description: 'Example City' })).toEqual(rejected)
   })
 
   it('uses close coordinates and every configured road reference as the road-node hard gate', () => {
@@ -357,6 +371,27 @@ describe('buildPlaceQueries', () => {
       nearbyLandmarks: [],
       roadRefs: [],
     })).toEqual([])
+  })
+
+  it('does not reuse aliases as nearby context or emit generic aliases as identity', () => {
+    expect(buildPlaceQueries({
+      canonicalName: '独特地标',
+      aliases: ['独特别名'],
+      adminPath: [],
+      nearbyLandmarks: ['独特别名'],
+      roadRefs: [],
+    })).toEqual([])
+
+    expect(buildPlaceQueries({
+      canonicalName: '独特地标',
+      aliases: ['bridge', '博物馆', '真实别名'],
+      adminPath: ['Example City'],
+      nearbyLandmarks: [],
+      roadRefs: [],
+    })).toEqual([
+      '独特地标 Example City',
+      '真实别名 Example City',
+    ])
   })
 
   it('builds deterministic, unique, identity-rich queries capped at five', () => {
