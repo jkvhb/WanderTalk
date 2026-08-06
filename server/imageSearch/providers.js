@@ -26,6 +26,11 @@ function normalizeTags(value) {
   return tagValues(value).join(', ')
 }
 
+function isUsableId(value) {
+  const id = stringValue(value)
+  return Boolean(id) && !/^(undefined|null|nan)$/i.test(id)
+}
+
 function candidate(provider, values) {
   return {
     provider,
@@ -48,7 +53,7 @@ function normalizeCandidates(provider, hits, mapHit) {
   return hits
     .filter((hit) => hit && typeof hit === 'object')
     .map((hit) => candidate(provider, mapHit(hit)))
-    .filter((hit) => hit.id && hit.imageUrl)
+    .filter((hit) => isUsableId(hit.id) && hit.imageUrl)
 }
 
 function elapsedSince(startedAt) {

@@ -123,6 +123,25 @@ describe('benchmark image search providers', () => {
     expect(pixabayUrl.searchParams.get('lang')).toBe('zh')
   })
 
+  it.each([
+    ['missing', {}],
+    ['null', { pageid: null }],
+    ['NaN', { pageid: Number.NaN }],
+  ])('drops Commons results with %s sentinel page ids', async (_label, pageIdentity) => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ query: { pages: {
+      malformed: {
+        ...pageIdentity,
+        title: 'File:Malformed.jpg',
+        imageinfo: [{ url: 'https://upload.wikimedia.org/malformed.jpg' }],
+      },
+    } } }))
+
+    const result = await createCommonsProvider({ fetchImpl })
+      .search({ query: 'malformed-page-id', place: {} })
+
+    expect(result.candidates).toEqual([])
+  })
+
   it('skips providers with missing credentials without fetching', async () => {
     const braveFetch = vi.fn()
     const mapillaryFetch = vi.fn()
