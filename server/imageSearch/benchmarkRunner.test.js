@@ -124,7 +124,7 @@ describe('搜图基准执行器', () => {
     const good = { name: 'good', search: vi.fn(async () => ({ candidates: [], elapsedMs: 1 })) }
     const runner = createBenchmarkRunner({
       providers: [broken, good],
-      concurrency: 6,
+      concurrency: 1,
       retries: 0,
       failureThreshold: 2,
       sleep: async () => {},
@@ -179,6 +179,30 @@ describe('搜图基准执行器', () => {
     expect(maximum).toBe(2)
   })
 
+  it('同一来源的不同地点可以用满 run 的并发额度', async () => {
+    let active = 0
+    let maximum = 0
+    let release
+    const gate = new Promise((resolve) => { release = resolve })
+    const fallback = setTimeout(release, 20)
+    const search = vi.fn(async () => {
+      active += 1
+      maximum = Math.max(maximum, active)
+      if (active === 3) {
+        clearTimeout(fallback)
+        release()
+      }
+      await gate
+      active -= 1
+      return { candidates: [], elapsedMs: 1 }
+    })
+    const runner = createBenchmarkRunner({ providers: [{ name: 'one', search }], concurrency: 3 })
+
+    await runner.run([{ id: 'a' }, { id: 'b' }, { id: 'c' }], () => ['q'])
+
+    expect(maximum).toBe(3)
+  })
+
   it('缓存仅属于当前基准执行器，不会跨实例共享', async () => {
     const search = vi.fn(async () => ({ candidates: [], elapsedMs: 1 }))
     const provider = { name: 'pixabay', search }
@@ -193,13 +217,14 @@ describe('搜图基准执行器', () => {
     expect(search).toHaveBeenCalledTimes(2)
   })
 
-  it('熔断只累计最终失败，重试后成功不算失败；中间成功也不重置已完成失败', async () => {
+  it('熔断只统计连续最终失败，成功会重置连续失败次数', async () => {
     const search = vi.fn()
       .mockRejectedValueOnce(Object.assign(new Error('temporary'), { status: 503 }))
       .mockResolvedValueOnce({ candidates: [], elapsedMs: 1 })
       .mockRejectedValueOnce(Object.assign(new Error('final-a'), { status: 400 }))
       .mockResolvedValueOnce({ candidates: [], elapsedMs: 1 })
       .mockRejectedValueOnce(Object.assign(new Error('final-c'), { status: 400 }))
+      .mockRejectedValueOnce(Object.assign(new Error('final-d'), { status: 400 }))
     const runner = createBenchmarkRunner({
       providers: [{ name: 'fake', search }],
       retries: 1,
@@ -215,9 +240,11 @@ describe('搜图基准执行器', () => {
       .resolves.not.toHaveProperty('error')
     await expect(runner.searchOnce({ query: 'final-c', place: { id: 'd' } }, 'fake'))
       .resolves.toMatchObject({ error: 'final-c' })
-    await expect(runner.searchOnce({ query: 'after-open', place: { id: 'e' } }, 'fake'))
+    await expect(runner.searchOnce({ query: 'final-d', place: { id: 'e' } }, 'fake'))
+      .resolves.toMatchObject({ error: 'final-d' })
+    await expect(runner.searchOnce({ query: 'after-open', place: { id: 'f' } }, 'fake'))
       .resolves.toMatchObject({ skipped: true, reason: 'circuit-open' })
-    expect(search).toHaveBeenCalledTimes(5)
+    expect(search).toHaveBeenCalledTimes(6)
   })
 
   it('同一候选图跨查询重复出现时只计作一张 exact', async () => {
@@ -239,5 +266,55 @@ describe('搜图基准执行器', () => {
 
     expect(row.exact.map(({ id }) => id)).toEqual(['e1', 'e2', 'e3'])
     expect(search).toHaveBeenCalledTimes(3)
+  })
+
+  it('缓存命中不重复累计此前请求的 retryCount 和 requestCount', async () => {
+    const search = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error('busy'), { status: 429 }))
+      .mockRejectedValueOnce(Object.assign(new Error('down'), { status: 503 }))
+      .mockResolvedValueOnce({ candidates: [], elapsedMs: 1 })
+    const runner = createBenchmarkRunner({
+      providers: [{ name: 'fake', search }],
+      retries: 2,
+      sleep: async () => {},
+    })
+
+    const [row] = await runner.run([{ id: 'a' }], () => ['same', 'same'])
+
+    expect(row).toMatchObject({ retryCount: 2, requestCount: 3, cacheHits: 1 })
+    expect(search).toHaveBeenCalledTimes(3)
+  })
+
+  it('并发请求乱序完成时仍按请求序号判断连续失败', async () => {
+    const deferred = () => {
+      let resolve
+      let reject
+      const promise = new Promise((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise
+        reject = rejectPromise
+      })
+      return { promise, resolve, reject }
+    }
+    const firstFailure = deferred()
+    const middleSuccess = deferred()
+    const lastFailure = deferred()
+    const pending = { first: firstFailure, middle: middleSuccess, last: lastFailure }
+    const search = vi.fn(({ query }) => pending[query]?.promise
+      || Promise.resolve({ candidates: [], elapsedMs: 1 }))
+    const runner = createBenchmarkRunner({
+      providers: [{ name: 'fake', search }], retries: 0, failureThreshold: 2,
+    })
+
+    const first = runner.searchOnce({ query: 'first', place: { id: 'a' } }, 'fake')
+    const middle = runner.searchOnce({ query: 'middle', place: { id: 'b' } }, 'fake')
+    const last = runner.searchOnce({ query: 'last', place: { id: 'c' } }, 'fake')
+    firstFailure.reject(Object.assign(new Error('first'), { status: 400 }))
+    lastFailure.reject(Object.assign(new Error('last'), { status: 400 }))
+    middleSuccess.resolve({ candidates: [], elapsedMs: 1 })
+    await Promise.all([first, middle, last])
+
+    const after = await runner.searchOnce({ query: 'after', place: { id: 'd' } }, 'fake')
+    expect(after).not.toHaveProperty('skipped')
+    expect(search).toHaveBeenCalledTimes(4)
   })
 })

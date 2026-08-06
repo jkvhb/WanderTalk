@@ -30,10 +30,28 @@ export function createBenchmarkRunner({
   const byName = new Map(providers.map((provider) => [provider.name, provider]))
   const cache = new Map()
   const sourceStates = new Map(providers.map((provider) => [provider.name, {
-    finalFailures: 0,
+    nextSequence: 0,
+    nextOutcomeToApply: 0,
+    outcomes: new Map(),
+    consecutiveFailures: 0,
     open: false,
-    tail: Promise.resolve(),
   }]))
+  const normalizedFailureThreshold = Math.max(1, Math.floor(Number(failureThreshold) || 1))
+
+  function recordOutcome(state, sequence, outcome) {
+    // Providers remain concurrent. Outcomes are applied in request-start order so network
+    // completion order cannot invent or erase a consecutive failure streak. Requests already
+    // started before the threshold is observed finish normally; later requests are skipped.
+    state.outcomes.set(sequence, outcome)
+    while (state.outcomes.has(state.nextOutcomeToApply)) {
+      const completed = state.outcomes.get(state.nextOutcomeToApply)
+      state.outcomes.delete(state.nextOutcomeToApply)
+      state.nextOutcomeToApply += 1
+      if (completed === 'failure') state.consecutiveFailures += 1
+      else if (completed === 'success') state.consecutiveFailures = 0
+      if (state.consecutiveFailures >= normalizedFailureThreshold) state.open = true
+    }
+  }
 
   async function searchOnce(input, providerName) {
     const provider = byName.get(providerName)
@@ -50,8 +68,14 @@ export function createBenchmarkRunner({
     if (cached) return { ...await cached, cacheHit: true }
 
     const state = sourceStates.get(providerName)
+    if (state.open) {
+      const skipped = Promise.resolve({ skipped: true, reason: 'circuit-open', retryCount: 0 })
+      cache.set(key, skipped)
+      return { ...await skipped, cacheHit: false }
+    }
+    const sequence = state.nextSequence
+    state.nextSequence += 1
     const execute = async () => {
-      if (state.open) return { skipped: true, reason: 'circuit-open', retryCount: 0 }
       let attempt = 0
       while (true) {
         try {
@@ -70,18 +94,10 @@ export function createBenchmarkRunner({
         }
       }
     }
-    const pending = state.tail.then(execute, execute).then((result) => {
-      if (result.error) {
-        // Count final failed searches cumulatively within this benchmark run.
-        // Successes deliberately do not reset the count, avoiding concurrent reset races.
-        state.finalFailures += 1
-        if (state.finalFailures >= Math.max(1, Math.floor(Number(failureThreshold) || 1))) {
-          state.open = true
-        }
-      }
+    const pending = execute().then((result) => {
+      recordOutcome(state, sequence, result.error ? 'failure' : result.skipped ? 'neutral' : 'success')
       return result
     })
-    state.tail = pending.then(() => undefined, () => undefined)
     cache.set(key, pending)
     const result = await pending
     return { ...result, cacheHit: false }
@@ -113,9 +129,11 @@ export function createBenchmarkRunner({
           row.skipped = result.reason
           break
         }
-        row.retryCount += result.retryCount || 0
         if (result.cacheHit) row.cacheHits += 1
-        else row.requestCount += 1 + (result.retryCount || 0)
+        else {
+          row.retryCount += result.retryCount || 0
+          row.requestCount += 1 + (result.retryCount || 0)
+        }
         if (result.error) {
           row.errors.push({ query, message: result.error, status: result.status })
           continue
