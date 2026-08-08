@@ -28,7 +28,7 @@ function sourceStatusForEnv(env) {
   const skipped = []
   if (env.PIXABAY_KEY) enabled.push('pixabay')
   else skipped.push('pixabay')
-  if (env.BRAVE_API_KEY || env.BRAVE_SEARCH_API_KEY) enabled.push('brave')
+  if (env.BRAVE_SEARCH_KEY || env.BRAVE_API_KEY || env.BRAVE_SEARCH_API_KEY) enabled.push('brave')
   else skipped.push('brave')
   if (env.MAPILLARY_ACCESS_TOKEN || env.MAPILLARY_TOKEN) enabled.push('mapillary')
   else skipped.push('mapillary')
@@ -50,25 +50,57 @@ async function removeIfPresent(fs, file) {
   }
 }
 
+async function renameIfPresent(fs, from, to) {
+  try {
+    await fs.rename(from, to)
+    return true
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
 async function writeReports(fs, outputDir, report) {
   const markdown = path.join(outputDir, `${REPORT_BASENAME}.md`)
   const json = path.join(outputDir, `${REPORT_BASENAME}.json`)
   const suffix = `.tmp-${process.pid}-${Date.now()}`
   const markdownTemp = `${markdown}${suffix}`
   const jsonTemp = `${json}${suffix}`
+  const markdownBackup = `${markdown}.bak-${process.pid}-${Date.now()}`
+  const jsonBackup = `${json}.bak-${process.pid}-${Date.now()}`
+  let markdownBackedUp = false
+  let jsonBackedUp = false
+  let markdownPromoted = false
+  let jsonPromoted = false
   await fs.mkdir(outputDir, { recursive: true })
   try {
     await fs.writeFile(markdownTemp, report.markdown, 'utf8')
     await fs.writeFile(jsonTemp, `${JSON.stringify(report.json, null, 2)}\n`, 'utf8')
+    markdownBackedUp = await renameIfPresent(fs, markdown, markdownBackup)
+    jsonBackedUp = await renameIfPresent(fs, json, jsonBackup)
     await fs.rename(markdownTemp, markdown)
+    markdownPromoted = true
     await fs.rename(jsonTemp, json)
+    jsonPromoted = true
+    await Promise.allSettled([
+      removeIfPresent(fs, markdownBackup),
+      removeIfPresent(fs, jsonBackup),
+    ])
   } catch (error) {
     await Promise.allSettled([
       removeIfPresent(fs, markdownTemp),
       removeIfPresent(fs, jsonTemp),
-      removeIfPresent(fs, markdown),
-      removeIfPresent(fs, json),
+      ...(markdownPromoted ? [removeIfPresent(fs, markdown)] : []),
+      ...(jsonPromoted ? [removeIfPresent(fs, json)] : []),
     ])
+    const restoreErrors = []
+    if (markdownBackedUp) {
+      try { await fs.rename(markdownBackup, markdown) } catch (restoreError) { restoreErrors.push(restoreError) }
+    }
+    if (jsonBackedUp) {
+      try { await fs.rename(jsonBackup, json) } catch (restoreError) { restoreErrors.push(restoreError) }
+    }
+    if (restoreErrors.length) throw new AggregateError([error, ...restoreErrors], '报告写入失败，且上一版报告未能完整恢复')
     throw error
   }
   return { markdown, json }
@@ -113,7 +145,7 @@ export async function runImageSearchBenchmark({
     providerFactories.pixabay({ apiKey: safeEnv.PIXABAY_KEY }),
     providerFactories.commons(),
     providerFactories.openverse(),
-    providerFactories.brave({ apiKey: safeEnv.BRAVE_API_KEY || safeEnv.BRAVE_SEARCH_API_KEY }),
+    providerFactories.brave({ apiKey: safeEnv.BRAVE_SEARCH_KEY || safeEnv.BRAVE_API_KEY || safeEnv.BRAVE_SEARCH_API_KEY }),
     providerFactories.mapillary({ accessToken: safeEnv.MAPILLARY_ACCESS_TOKEN || safeEnv.MAPILLARY_TOKEN }),
   ]
   const runner = runnerFactory({ providers, concurrency })

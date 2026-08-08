@@ -33,6 +33,7 @@ function memoryFs() {
     mkdir: vi.fn(async () => {}),
     writeFile: vi.fn(async (file, contents) => { files.set(file, contents) }),
     rename: vi.fn(async (from, to) => {
+      if (!files.has(from)) throw Object.assign(new Error(`ENOENT: ${from}`), { code: 'ENOENT' })
       files.set(to, files.get(from))
       files.delete(from)
     }),
@@ -154,7 +155,7 @@ describe('图片来源基准 CLI', () => {
     expect(fs.files.get(md)).toBe(report.markdown)
     expect(JSON.parse(fs.files.get(json))).toEqual(report.json)
     expect(result.files).toEqual({ markdown: md, json })
-    expect(fs.rename).toHaveBeenCalledTimes(2)
+    expect(fs.rename.mock.calls.filter(([from]) => from.includes('.tmp-'))).toHaveLength(2)
   })
 
   it('发布闸门失败时不写任何临时文件或正式报告', async () => {
@@ -221,5 +222,61 @@ describe('图片来源基准 CLI', () => {
     expect(runBenchmark).toHaveBeenCalledOnce()
     expect(messages.join('\n')).toContain('HTTP 上游请求：48')
     expect(messages.join('\n')).not.toMatch(/key|token|secret|sk-/i)
+  })
+
+  it('识别计划约定的 Brave 和 Mapillary 密钥变量名', async () => {
+    const providerFactories = fakeFactories()
+    const runner = { run: vi.fn().mockResolvedValue(makeRows(1)) }
+
+    const result = await runImageSearchBenchmark({
+      env: { BRAVE_SEARCH_KEY: 'brave-secret', MAPILLARY_TOKEN: 'map-secret' },
+      places,
+      providerFactories,
+      runnerFactory: vi.fn(() => runner),
+      reportBuilder: vi.fn(() => ({
+        markdown: 'ok',
+        json: {
+          releaseGate: { passed: true },
+          sources: { enabled: ['brave', 'mapillary'], skipped: [], failed: [] },
+          summary: {},
+        },
+      })),
+      fs: memoryFs(), outputDir: 'out',
+    })
+
+    expect(providerFactories.brave).toHaveBeenCalledWith({ apiKey: 'brave-secret' })
+    expect(providerFactories.mapillary).toHaveBeenCalledWith({ accessToken: 'map-secret' })
+    expect(result.sources.enabled).toEqual(['brave', 'mapillary'])
+  })
+
+  it('替换第二份报告失败时恢复上一版完整报告', async () => {
+    const fs = memoryFs()
+    const md = path.join('reports', '2026-08-06-image-search-source-benchmark.md')
+    const json = path.join('reports', '2026-08-06-image-search-source-benchmark.json')
+    fs.files.set(md, '# old\n')
+    fs.files.set(json, '{"old":true}\n')
+    let promoted = 0
+    fs.rename.mockImplementation(async (from, to) => {
+      if (!fs.files.has(from)) throw Object.assign(new Error(`ENOENT: ${from}`), { code: 'ENOENT' })
+      if (from.includes('.tmp-') && ++promoted === 2) throw new Error('disk failure')
+      fs.files.set(to, fs.files.get(from))
+      fs.files.delete(from)
+    })
+    const runner = { run: vi.fn().mockResolvedValue(makeRows(5)) }
+
+    await expect(runImageSearchBenchmark({
+      places,
+      providerFactories: fakeFactories(),
+      runnerFactory: vi.fn(() => runner),
+      reportBuilder: vi.fn(() => ({
+        markdown: '# new\n',
+        json: { releaseGate: { passed: true }, sources: {}, summary: {} },
+      })),
+      fs, outputDir: 'reports',
+    })).rejects.toThrow('disk failure')
+
+    expect(fs.files.get(md)).toBe('# old\n')
+    expect(fs.files.get(json)).toBe('{"old":true}\n')
+    expect([...fs.files.keys()].some((file) => file.includes('.tmp-') || file.includes('.bak-'))).toBe(false)
   })
 })
