@@ -25,7 +25,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "benchmark:images": "node scripts/image-search-benchmark.js"
   },
   "dependencies": {
     "@amap/amap-jsapi-loader": "^1.0.1",
