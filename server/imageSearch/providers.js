@@ -184,6 +184,8 @@ export function createPixabayProvider({ apiKey, fetchImpl = fetch } = {}) {
           tags: hit.tags,
           sourcePage: hit.pageURL,
           imageUrl: hit.largeImageURL || hit.webformatURL,
+          license: 'Pixabay Content License',
+          licenseUrl: 'https://pixabay.com/service/terms/',
         })),
         elapsedMs: elapsedSince(startedAt),
       }

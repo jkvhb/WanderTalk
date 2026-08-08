@@ -93,9 +93,10 @@ function explicitlyNegativeEvidence(value) {
   if (!value || typeof value !== 'object') return false
   if (Array.isArray(value)) return value.some(explicitlyNegativeEvidence)
   if (value.negative === true) return true
-  return ['type', 'kind', 'reason', 'status'].some((field) => explicitlyNegativeEvidence(value[field]))
-    || hasEvidence(value.negativeEvidence)
-    || hasEvidence(value.matchedNegativeTerms)
+  return Object.entries(value).some(([field, fieldValue]) => {
+    if (/^(?:negativeEvidence|matchedNegativeTerms)$/i.test(field)) return hasEvidence(fieldValue)
+    return explicitlyNegativeEvidence(fieldValue)
+  })
 }
 
 function releaseGateReasons(rows) {
@@ -104,6 +105,7 @@ function releaseGateReasons(rows) {
     for (const item of list(row?.exact)) {
       if (item?.identityReason === 'negative-evidence'
         || hasEvidence(item?.negativeEvidence)
+        || hasEvidence(item?.matchedNegativeTerms)
         || explicitlyNegativeEvidence(item?.identityEvidence)) {
         reasons.push(stableSnapshot({
           placeId: row?.placeId || null,
@@ -145,6 +147,7 @@ function normalizeRow(row) {
 }
 
 function sourceSummary(rows, override = {}) {
+  const supplied = override && typeof override === 'object' && !Array.isArray(override) ? override : {}
   const grouped = new Map()
   for (const row of rows) {
     if (!grouped.has(row.provider)) grouped.set(row.provider, [])
@@ -157,14 +160,14 @@ function sourceSummary(rows, override = {}) {
     const executed = providerRows.filter((row) => !row.skipped)
     if (executed.length === 0) skipped.push(provider)
     else enabled.push(provider)
-    if (executed.length > 0 && executed.every((row) => row.errors.length > 0
+    if (executed.length > 0 && executed.every((row) => (row.hadFinalFailure || row.errors.length > 0)
       && row.exact.length + row.needsReview.length + row.rejected.length === 0)) failed.push(provider)
   }
-  const merged = (inferred, supplied) => [...new Set([...inferred, ...list(supplied).map(String)])].sort()
+  const merged = (inferred, values) => [...new Set([...inferred, ...list(values).map(String)])].sort()
   return {
-    enabled: merged(enabled, override.enabled),
-    skipped: merged(skipped, override.skipped),
-    failed: merged(failed, override.failed),
+    enabled: merged(enabled, supplied.enabled),
+    skipped: merged(skipped, supplied.skipped),
+    failed: merged(failed, supplied.failed),
   }
 }
 
@@ -178,10 +181,59 @@ function aggregateStatusCounts(rows) {
   return Object.fromEntries(Object.entries(totals).sort(([left], [right]) => left.localeCompare(right)))
 }
 
-function buildSummary(rows) {
-  const firstExactValues = rows
-    .map((row) => Number(row.firstExactMs))
-    .filter((value) => Number.isFinite(value) && value >= 0)
+function isDirectUseCandidate(item) {
+  const license = typeof item?.license === 'string' ? item.license.trim() : ''
+  return Boolean(
+    isCompleteSafeUrl(item?.imageUrl)
+    && isCompleteSafeUrl(item?.sourcePage)
+    && isCompleteSafeUrl(item?.licenseUrl)
+    && license
+    && !/^(?:unknown|未知|未提供)$/i.test(license),
+  )
+}
+
+function isCompleteSafeUrl(value) {
+  if (!safeUrl(value)) return false
+  try {
+    const url = new URL(value.trim())
+    return ![...url.searchParams.keys()].some((key) => SECRET_QUERY_KEY.test(key))
+  } catch {
+    return false
+  }
+}
+
+function classifyUsage(rows) {
+  const directUseCandidates = []
+  const discoveryOnlyCandidates = []
+  for (const row of rows) {
+    for (const item of list(row?.exact)) {
+      const reference = {
+        placeId: row?.placeId || null,
+        placeName: row?.placeName || row?.placeId || '未知地点',
+        provider: row?.provider || '未知来源',
+        candidateId: item?.id || null,
+        title: item?.title || null,
+      }
+      if (isDirectUseCandidate(item)) directUseCandidates.push(reference)
+      else discoveryOnlyCandidates.push(reference)
+    }
+  }
+  return { directUseCandidates, discoveryOnlyCandidates }
+}
+
+function durationOrNull(value) {
+  if (value == null || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) && number >= 0 ? number : null
+}
+
+function minimumDuration(rows, field) {
+  const values = rows.map((row) => durationOrNull(row[field])).filter((value) => value != null)
+  return values.length > 0 ? Math.min(...values) : null
+}
+
+function buildSummary(rows, cachedRunElapsedMs, usage) {
+  const batchValues = rows.map((row) => durationOrNull(row.batchElapsedMs)).filter((value) => value != null)
   return {
     places: new Set(rows.map((row) => row.placeId).filter(Boolean)).size,
     sources: new Set(rows.map((row) => row.provider).filter(Boolean)).size,
@@ -195,8 +247,12 @@ function buildSummary(rows) {
     statusCounts: aggregateStatusCounts(rows),
     finalErrors: rows.reduce((sum, row) => sum + row.errors.length, 0),
     cacheHits: rows.reduce((sum, row) => sum + count(row.cacheHits), 0),
-    firstExactMs: firstExactValues.length > 0 ? Math.min(...firstExactValues) : null,
-    totalElapsedMs: rows.reduce((sum, row) => sum + count(row.elapsedMs), 0),
+    firstExactMs: minimumDuration(rows, 'firstExactMs'),
+    threeExactMs: minimumDuration(rows, 'threeExactMs'),
+    batchElapsedMs: batchValues.length > 0 ? Math.max(...batchValues) : null,
+    cachedRunElapsedMs: durationOrNull(cachedRunElapsedMs),
+    directUseCandidates: usage.directUseCandidates.length,
+    discoveryOnlyCandidates: usage.discoveryOnlyCandidates.length,
   }
 }
 
@@ -329,7 +385,8 @@ export function buildBenchmarkReport(inputRows, options = {}) {
   const gateReasons = releaseGateReasons(rawRows)
   const rows = rawRows.map(normalizeRow)
   const sources = sourceSummary(rows, settings.sourceStatus)
-  const summary = buildSummary(rows)
+  const usage = classifyUsage(rawRows)
+  const summary = buildSummary(rows, settings.cachedRunElapsedMs, usage)
   const lists = buildLists(rows)
   const places = placeSummaries(rows)
   const createdAt = generatedAt(settings)
@@ -348,8 +405,11 @@ export function buildBenchmarkReport(inputRows, options = {}) {
     '|---|---:|',
     `| 节点数 | ${summary.places} |`,
     `| 精准/待确认/已拒绝 | ${summary.exactCandidates}/${summary.reviewCandidates}/${summary.rejectedCandidates} |`,
+    `| 可直接使用/仅发现候选 | ${summary.directUseCandidates}/${summary.discoveryOnlyCandidates} |`,
     `| 首张精准图片时间(ms) | ${summary.firstExactMs ?? '无'} |`,
-    `| 总耗时(ms) | ${summary.totalElapsedMs} |`,
+    `| 达到三张精准图片时间(ms) | ${summary.threeExactMs ?? '无'} |`,
+    `| 整批真实墙钟耗时(ms) | ${summary.batchElapsedMs ?? '无'} |`,
+    `| 缓存复跑耗时(ms) | ${summary.cachedRunElapsedMs ?? '无'} |`,
     `| 逻辑查询数 | ${summary.logicalQueries} |`,
     `| 接口调用总数 | ${summary.attemptCount} |`,
     `| 重试/超时/最终错误/缓存命中 | ${summary.retries}/${summary.timeouts}/${summary.finalErrors}/${summary.cacheHits} |`,
@@ -357,10 +417,13 @@ export function buildBenchmarkReport(inputRows, options = {}) {
     '',
     `- 逻辑查询数：${summary.logicalQueries}`,
     `- 接口调用总数：${summary.attemptCount}`,
+    `- 可直接使用候选：${summary.directUseCandidates}`,
+    `- 仅发现候选：${summary.discoveryOnlyCandidates}`,
+    '- 许可提示：即使列为可直接使用候选，仍须逐图遵守许可条款、署名要求及第三方权利限制。',
     '',
-    '| 节点 | 来源 | 状态 | 耗时(ms) | 精准/待确认/拒绝 |',
-    '|---|---|---|---:|---:|',
-    ...rows.map((row) => `| ${markdownText(row.placeName)} | ${markdownText(row.provider)} | ${row.status} | ${count(row.elapsedMs)} | ${row.exact.length}/${row.needsReview.length}/${row.rejected.length} |`),
+    '| 节点 | 来源 | 状态 | 行等待(ms) | 首次精准(ms) | 三张精准(ms) | 批次墙钟(ms) | 精准/待确认/拒绝 |',
+    '|---|---|---|---:|---:|---:|---:|---:|',
+    ...rows.map((row) => `| ${markdownText(row.placeName)} | ${markdownText(row.provider)} | ${row.status} | ${count(row.elapsedMs)} | ${durationOrNull(row.firstExactMs) ?? '无'} | ${durationOrNull(row.threeExactMs) ?? '无'} | ${durationOrNull(row.batchElapsedMs) ?? '无'} | ${row.exact.length}/${row.needsReview.length}/${row.rejected.length} |`),
     '',
     ...placeSections(rows),
     '## 复核清单',
@@ -378,6 +441,7 @@ export function buildBenchmarkReport(inputRows, options = {}) {
       sources,
       lists,
       places,
+      usage,
       rows,
     }),
   }

@@ -107,7 +107,8 @@ describe('benchmark image search providers', () => {
     expect(pixabay.candidates[0]).toMatchObject({
       provider: 'pixabay', id: '7', title: '', description: '', tags: 'mountain, snow',
       sourcePage: 'https://pixabay.com/photos/7', imageUrl: 'https://cdn.pixabay.com/photo/7.jpg',
-      author: '', license: '', licenseUrl: '', coordinates: null, publisher: '',
+      author: '', license: 'Pixabay Content License',
+      licenseUrl: 'https://pixabay.com/service/terms/', coordinates: null, publisher: '',
     })
     expect(commons.candidates[0]).toMatchObject({
       provider: 'commons', id: '8', title: 'Mountain.jpg', tags: 'Mountain.jpg',

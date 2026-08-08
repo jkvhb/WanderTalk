@@ -75,6 +75,7 @@ export function createBenchmarkRunner({
   failureThreshold = 3,
   requestTimeoutMs = 15000,
   sleep = wait,
+  clock = Date.now,
 } = {}) {
   if (!Array.isArray(providers)) throw new TypeError('Providers must be an array')
   const providerNames = new Set()
@@ -96,6 +97,15 @@ export function createBenchmarkRunner({
   const normalizedConcurrency = atLeastOneInteger(concurrency, 4)
   const normalizedFailureThreshold = atLeastOneInteger(failureThreshold, 3)
   const normalizedRequestTimeoutMs = positiveInteger(requestTimeoutMs, 15000)
+  const readTime = () => {
+    try {
+      const value = Number(typeof clock === 'function' ? clock() : Date.now())
+      return Number.isFinite(value) ? value : Date.now()
+    } catch {
+      return Date.now()
+    }
+  }
+  const elapsed = (startedAt) => Math.max(0, readTime() - startedAt)
 
   function recordOutcome(state, outcome) {
     // Completion-order semantics prevent an earlier hanging request from blocking protection.
@@ -224,8 +234,10 @@ export function createBenchmarkRunner({
 
   async function run(places, queryBuilder) {
     if (!Array.isArray(places)) return []
+    const batchStartedAt = readTime()
     const jobs = places.flatMap((place) => providers.map((provider) => ({ place, providerName: provider.name })))
-    return runPool(jobs, async ({ place, providerName }) => {
+    const rows = await runPool(jobs, async ({ place, providerName }) => {
+      const rowStartedAt = readTime()
       const row = {
         placeId: place.id,
         placeName: place.canonicalName || place.id,
@@ -242,6 +254,11 @@ export function createBenchmarkRunner({
         statusCounts: {},
         cacheHits: 0,
         elapsedMs: 0,
+        firstExactMs: null,
+        threeExactMs: null,
+        batchElapsedMs: null,
+        hadFinalFailure: false,
+        failedQueryCount: 0,
       }
       const seenCandidateIds = new Set()
       const seenImageUrls = new Set()
@@ -274,9 +291,9 @@ export function createBenchmarkRunner({
         return row
       }
       for (const query of queries) {
-        const startedAt = Date.now()
+        const startedAt = readTime()
         const result = await searchOnce({ query, place }, providerName)
-        row.elapsedMs += Date.now() - startedAt
+        row.elapsedMs += elapsed(startedAt)
         if (result.skipped) {
           row.skipped = result.reason
           break
@@ -292,9 +309,12 @@ export function createBenchmarkRunner({
           }
         }
         if (result.error) {
+          row.hadFinalFailure = true
+          row.failedQueryCount += 1
           if (!result.cacheHit) row.errors.push({ query, message: result.error, status: result.status })
           continue
         }
+        const exactBefore = row.exact.length
         for (const item of result.candidates || []) {
           const idKey = providerId(item, providerName)
           const urlKey = canonicalImageUrl(item?.imageUrl)
@@ -312,6 +332,13 @@ export function createBenchmarkRunner({
           else if (identity.status === 'needs_review') row.needsReview.push(decorated)
           else row.rejected.push(decorated)
         }
+        const exactElapsed = elapsed(rowStartedAt)
+        if (row.firstExactMs == null && exactBefore === 0 && row.exact.length > 0) {
+          row.firstExactMs = exactElapsed
+        }
+        if (row.threeExactMs == null && exactBefore < 3 && row.exact.length >= 3) {
+          row.threeExactMs = exactElapsed
+        }
         if (row.exact.length >= 3) {
           row.exact = row.exact.slice(0, 3)
           break
@@ -319,6 +346,8 @@ export function createBenchmarkRunner({
       }
       return row
     }, normalizedConcurrency)
+    const batchElapsedMs = elapsed(batchStartedAt)
+    return rows.map((row) => ({ ...row, batchElapsedMs }))
   }
 
   return { searchOnce, run }

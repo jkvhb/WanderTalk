@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import { createBenchmarkRunner } from './benchmarkRunner.js'
 import { buildBenchmarkReport } from './report.js'
+
+it('汇总首张精准图耗时时忽略没有精准结果的空时间', () => {
+  const report = buildBenchmarkReport([
+    { placeId: 'none', provider: 'a', exact: [], firstExactMs: null },
+    { placeId: 'hit', provider: 'b', exact: [{ id: 'x' }], firstExactMs: 45 },
+  ])
+
+  expect(report.json.summary.firstExactMs).toBe(45)
+})
 
 describe('搜图基准报告', () => {
   it('生成可复核的基础摘要并区分逻辑查询与真实接口调用', () => {
@@ -19,7 +29,12 @@ describe('搜图基准报告', () => {
       cacheHits: 3,
       elapsedMs: 120,
       firstExactMs: 45,
-    }], { now: () => new Date('2026-08-07T01:02:03.000Z') })
+      threeExactMs: 90,
+      batchElapsedMs: 150,
+    }], {
+      now: () => new Date('2026-08-07T01:02:03.000Z'),
+      cachedRunElapsedMs: 25,
+    })
 
     expect(report.json.generatedAt).toBe('2026-08-07T01:02:03.000Z')
     expect(report.json.summary).toMatchObject({
@@ -31,19 +46,28 @@ describe('搜图基准报告', () => {
       statusCounts: { 429: 1, '5xx': 1, timeout: 1 },
       cacheHits: 3,
       firstExactMs: 45,
-      totalElapsedMs: 120,
+      threeExactMs: 90,
+      batchElapsedMs: 150,
+      cachedRunElapsedMs: 25,
     })
+    expect(report.json.summary).not.toHaveProperty('totalElapsedMs')
     expect(report.json.releaseGate).toEqual({ passed: true, reasons: [] })
     expect(report.markdown).toContain('接口调用总数：4')
     expect(report.markdown).toContain('逻辑查询数：2')
     expect(report.markdown).toContain('金沙江大桥（竹巴笼）')
+    expect(report.markdown).toContain('| 达到三张精准图片时间(ms) | 90 |')
+    expect(report.markdown).toContain('| 整批真实墙钟耗时(ms) | 150 |')
+    expect(report.markdown).toContain('| 缓存复跑耗时(ms) | 25 |')
+    expect(report.markdown).not.toContain('| 总耗时(ms) |')
   })
 
   it.each([
     { identityReason: 'negative-evidence' },
     { negativeEvidence: ['London'] },
     { negativeEvidence: 'London' },
+    { matchedNegativeTerms: ['London'] },
     { identityEvidence: [{ type: 'negative-evidence', value: 'Tower Bridge' }] },
+    { identityEvidence: { checks: [{ matchedNegativeTerms: ['Tower Bridge'] }] } },
   ])('任何负面身份凭据进入 exact 都会触发发布硬闸门', (item) => {
     let thrown
     try {
@@ -196,6 +220,9 @@ describe('搜图基准报告', () => {
     expect(() => buildBenchmarkReport([null, 42, { placeName: '只有名称' }]))
       .not.toThrow()
     expect(() => buildBenchmarkReport([], null)).not.toThrow()
+    const nullOptions = buildBenchmarkReport([], { sourceStatus: null, cachedRunElapsedMs: null })
+    expect(nullOptions.json.summary.cachedRunElapsedMs).toBeNull()
+    expect(nullOptions.markdown).toContain('| 缓存复跑耗时(ms) | 无 |')
   })
 
   it('不根据标题类别猜测负例，发布闸门只读取明确身份凭据', () => {
@@ -221,5 +248,93 @@ describe('搜图基准报告', () => {
     ])
     expect(report.markdown).toContain('地点状态：精准匹配')
     expect(report.markdown).toContain('brave：来源未执行')
+  })
+
+  it('仅将身份精准且来源与许可证据完整的图片计为 direct-use', () => {
+    const report = buildBenchmarkReport([{
+      placeId: 'p', placeName: '节点', provider: 'pixabay',
+      exact: [
+        {
+          id: 'direct', title: '完整图片', imageUrl: 'https://img.example/direct.jpg',
+          sourcePage: 'https://pixabay.com/photos/direct', license: 'Pixabay Content License',
+          licenseUrl: 'https://pixabay.com/service/terms/',
+        },
+        {
+          id: 'discovery', title: '许可链接缺失', imageUrl: 'https://img.example/discovery.jpg',
+          sourcePage: 'https://example.com/discovery', license: '未知许可', licenseUrl: '',
+        },
+        {
+          id: 'unsafe-url', title: '链接含凭据', imageUrl: 'https://img.example/unsafe.jpg',
+          sourcePage: 'https://example.com/unsafe?token=secret', license: 'CC BY 4.0',
+          licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+        },
+      ],
+      needsReview: [{ id: 'review', imageUrl: 'https://img.example/review.jpg' }],
+      rejected: [], errors: [],
+    }])
+
+    expect(report.json.summary).toMatchObject({
+      directUseCandidates: 1,
+      discoveryOnlyCandidates: 2,
+    })
+    expect(report.json.usage.directUseCandidates).toEqual([
+      expect.objectContaining({ candidateId: 'direct', placeId: 'p', provider: 'pixabay' }),
+    ])
+    expect(report.json.usage.discoveryOnlyCandidates).toEqual([
+      expect.objectContaining({ candidateId: 'discovery' }),
+      expect.objectContaining({ candidateId: 'unsafe-url' }),
+    ])
+    expect(report.markdown).toContain('可直接使用候选：1')
+    expect(report.markdown).toContain('仅发现候选：2')
+    expect(report.markdown).toContain('仍须逐图遵守许可条款、署名要求及第三方权利限制')
+  })
+
+  it('缓存命中的最终失败仍将来源列为失败且不重复 finalErrors', async () => {
+    const runner = createBenchmarkRunner({
+      providers: [{
+        name: 'fake',
+        search: async () => { throw Object.assign(new Error('bad query'), { status: 400 }) },
+      }],
+      concurrency: 2,
+    })
+    const rows = await runner.run([{ id: 'same' }, { id: 'same' }], () => ['q'])
+
+    const report = buildBenchmarkReport(rows)
+
+    expect(report.json.sources.failed).toEqual(['fake'])
+    expect(report.json.summary.finalErrors).toBe(1)
+    expect(report.json.rows.map((row) => row.hadFinalFailure)).toEqual([true, true])
+  })
+
+  it('直接消费 runner 的真实时间证据而不重新推算', async () => {
+    let now = 0
+    const place = {
+      id: 'midui', canonicalName: '米堆冰川', aliases: [],
+      adminPath: ['西藏自治区', '林芝市', '波密县'], nearbyLandmarks: [], roadRefs: [],
+      negativeTerms: [], nodeType: 'natural-landmark', coordinates: null,
+    }
+    const runner = createBenchmarkRunner({
+      providers: [{
+        name: 'fake',
+        search: async () => {
+          now = 30
+          return { candidates: ['one', 'two', 'three'].map((id) => ({
+            id, provider: 'fake', title: '米堆冰川', description: '波密县',
+            imageUrl: `https://img.example/${id}.jpg`,
+          })) }
+        },
+      }],
+      clock: () => now,
+    })
+    const rows = await runner.run([place], () => ['q'])
+
+    const report = buildBenchmarkReport(rows, { cachedRunElapsedMs: 4 })
+
+    expect(report.json.summary).toMatchObject({
+      firstExactMs: 30, threeExactMs: 30, batchElapsedMs: 30, cachedRunElapsedMs: 4,
+    })
+    expect(report.json.rows[0]).toMatchObject({
+      firstExactMs: 30, threeExactMs: 30, batchElapsedMs: 30,
+    })
   })
 })

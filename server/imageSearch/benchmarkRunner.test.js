@@ -3,6 +3,102 @@ import { createBenchmarkRunner } from './benchmarkRunner.js'
 import { createMapillaryProvider } from './providers.js'
 
 describe('搜图基准执行器', () => {
+  it('记录每行首次/三张精准图时间和整批真实墙钟时间', async () => {
+    let now = 0
+    const place = {
+      id: 'midui', canonicalName: '米堆冰川', aliases: [],
+      adminPath: ['西藏自治区', '林芝市', '波密县'], nearbyLandmarks: [], roadRefs: [],
+      negativeTerms: [], nodeType: 'natural-landmark', coordinates: null,
+    }
+    const exact = (id) => ({
+      id, provider: 'fake', title: '米堆冰川', description: '波密县',
+      imageUrl: `https://img.example/${id}.jpg`,
+    })
+    const search = vi.fn(async ({ query }) => {
+      now += query === 'first' ? 20 : 30
+      return { candidates: query === 'first' ? [exact('one')] : [exact('two'), exact('three')] }
+    })
+    const runner = createBenchmarkRunner({
+      providers: [{ name: 'fake', search }],
+      clock: () => now,
+    })
+
+    const [row] = await runner.run([place], () => ['first', 'second'])
+
+    expect(row).toMatchObject({
+      firstExactMs: 20,
+      threeExactMs: 50,
+      batchElapsedMs: 50,
+      elapsedMs: 50,
+    })
+  })
+
+  it('并发批次总墙钟时间不等于各行耗时之和', async () => {
+    vi.useFakeTimers()
+    try {
+      const search = vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        return { candidates: [] }
+      })
+      const runner = createBenchmarkRunner({
+        providers: [{ name: 'fake', search }], concurrency: 2,
+      })
+
+      const running = runner.run([{ id: 'a' }, { id: 'b' }], () => ['q'])
+      await vi.advanceTimersByTimeAsync(100)
+      const rows = await running
+
+      expect(rows.map((row) => row.elapsedMs)).toEqual([100, 100])
+      expect(rows.map((row) => row.batchElapsedMs)).toEqual([100, 100])
+      expect(rows[0].batchElapsedMs).not.toBe(rows.reduce((sum, row) => sum + row.elapsedMs, 0))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('缓存合并请求仍为每行记录本次实际等待时间', async () => {
+    let now = 0
+    let release
+    const pending = new Promise((resolve) => { release = resolve })
+    const place = {
+      id: 'midui', canonicalName: '米堆冰川', aliases: [],
+      adminPath: ['西藏自治区', '林芝市', '波密县'], nearbyLandmarks: [], roadRefs: [],
+      negativeTerms: [], nodeType: 'natural-landmark', coordinates: null,
+    }
+    const search = vi.fn(() => pending)
+    const runner = createBenchmarkRunner({
+      providers: [{ name: 'fake', search }], concurrency: 2, clock: () => now,
+    })
+
+    const running = runner.run([place, { ...place }], () => ['same'])
+    await vi.waitFor(() => expect(search).toHaveBeenCalledTimes(1))
+    now = 40
+    release({ candidates: [{
+      id: 'one', provider: 'fake', title: '米堆冰川', description: '波密县',
+      imageUrl: 'https://img.example/one.jpg',
+    }] })
+    const rows = await running
+
+    expect(rows.map((row) => row.elapsedMs)).toEqual([40, 40])
+    expect(rows.map((row) => row.firstExactMs)).toEqual([40, 40])
+    expect(rows.reduce((sum, row) => sum + row.cacheHits, 0)).toBe(1)
+  })
+
+  it('缓存命中的最终失败保留行失败状态但不重复统计错误和调用', async () => {
+    const search = vi.fn(async () => { throw Object.assign(new Error('bad query'), { status: 400 }) })
+    const runner = createBenchmarkRunner({
+      providers: [{ name: 'fake', search }], concurrency: 2,
+    })
+
+    const rows = await runner.run([{ id: 'same' }, { id: 'same' }], () => ['q'])
+
+    expect(rows.map((row) => row.hadFinalFailure)).toEqual([true, true])
+    expect(rows.map((row) => row.failedQueryCount)).toEqual([1, 1])
+    expect(rows.reduce((sum, row) => sum + row.errors.length, 0)).toBe(1)
+    expect(rows.reduce((sum, row) => sum + row.attemptCount, 0)).toBe(1)
+    expect(rows.reduce((sum, row) => sum + row.requestCount, 0)).toBe(1)
+  })
+
   it('同一来源、地点和查询的并发请求只访问上游一次', async () => {
     let release
     const pending = new Promise((resolve) => { release = resolve })
