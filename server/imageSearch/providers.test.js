@@ -329,6 +329,7 @@ describe('benchmark image search providers', () => {
       expect(options.headers).toEqual({ Authorization: 'OAuth token' })
     }
     expect(result.candidates.map(({ id }) => id).sort()).toEqual(['duplicate', 'unique-1', 'unique-2'])
+    expect(result.upstreamAttemptCount).toBe(2)
   })
 
   it.each([

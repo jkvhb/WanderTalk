@@ -122,6 +122,7 @@ export function createBenchmarkRunner({
         error: `Unknown provider: ${providerName}`,
         status: 500,
         attemptCount: 0,
+        upstreamAttemptCount: 0,
         retryCount: 0,
         timeoutCount: 0,
         statusCounts: {},
@@ -131,7 +132,7 @@ export function createBenchmarkRunner({
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
       return {
         error: 'Invalid benchmark search input',
-        status: 'invalid-input', attemptCount: 0, retryCount: 0,
+        status: 'invalid-input', attemptCount: 0, upstreamAttemptCount: 0, retryCount: 0,
         timeoutCount: 0, statusCounts: {}, cacheHit: false,
       }
     }
@@ -143,7 +144,7 @@ export function createBenchmarkRunner({
     } catch (error) {
       return {
         error: `Provider cacheKey failed: ${error instanceof Error ? error.message : String(error)}`,
-        status: 'cache-key-error', attemptCount: 0, retryCount: 0,
+        status: 'cache-key-error', attemptCount: 0, upstreamAttemptCount: 0, retryCount: 0,
         timeoutCount: 0, statusCounts: {}, cacheHit: false,
       }
     }
@@ -154,7 +155,7 @@ export function createBenchmarkRunner({
     const state = sourceStates.get(providerName)
     if (state.open) {
       const skipped = Promise.resolve({
-        skipped: true, reason: 'circuit-open', attemptCount: 0, retryCount: 0,
+        skipped: true, reason: 'circuit-open', attemptCount: 0, upstreamAttemptCount: 0, retryCount: 0,
         timeoutCount: 0, statusCounts: {},
       })
       cache.set(key, skipped)
@@ -163,6 +164,7 @@ export function createBenchmarkRunner({
     const execute = async () => {
       let attempt = 0
       let attemptCount = 0
+      let upstreamAttemptCount = 0
       let timeoutCount = 0
       const statusCounts = {}
       while (true) {
@@ -170,6 +172,15 @@ export function createBenchmarkRunner({
         let timer
         try {
           attemptCount += 1
+          let estimatedUpstreamAttempts = 1
+          if (typeof provider.upstreamAttemptCount === 'function') {
+            try {
+              estimatedUpstreamAttempts = nonNegativeInteger(provider.upstreamAttemptCount(input), 1)
+            } catch {
+              estimatedUpstreamAttempts = 1
+            }
+          }
+          upstreamAttemptCount += estimatedUpstreamAttempts
           const timeout = new Promise((resolve, reject) => {
             timer = setTimeout(() => {
               controller.abort()
@@ -188,7 +199,7 @@ export function createBenchmarkRunner({
             error.status = 'invalid-provider-result'
             throw error
           }
-          return { ...result, attemptCount, retryCount: attempt, timeoutCount, statusCounts }
+          return { ...result, attemptCount, upstreamAttemptCount, retryCount: attempt, timeoutCount, statusCounts }
         } catch (error) {
           const category = statusCategory(error?.status)
           statusCounts[category] = (statusCounts[category] || 0) + 1
@@ -199,6 +210,7 @@ export function createBenchmarkRunner({
               status: typeof error?.status === 'string' ? error.status
                 : Number.isFinite(error?.status) ? error.status : 500,
               attemptCount,
+              upstreamAttemptCount,
               retryCount: attempt,
               timeoutCount,
               statusCounts,
@@ -211,6 +223,7 @@ export function createBenchmarkRunner({
               error: `Retry sleep failed: ${sleepError instanceof Error ? sleepError.message : String(sleepError)}`,
               status: 'sleep-error',
               attemptCount,
+              upstreamAttemptCount,
               retryCount: attempt,
               timeoutCount,
               statusCounts,
@@ -249,6 +262,7 @@ export function createBenchmarkRunner({
         skipped: null,
         requestCount: 0,
         attemptCount: 0,
+        upstreamAttemptCount: 0,
         retryCount: 0,
         timeoutCount: 0,
         statusCounts: {},
@@ -302,6 +316,7 @@ export function createBenchmarkRunner({
         else {
           row.requestCount += 1
           row.attemptCount += result.attemptCount || 0
+          row.upstreamAttemptCount += result.upstreamAttemptCount || 0
           row.retryCount += result.retryCount || 0
           row.timeoutCount += result.timeoutCount || 0
           for (const [status, count] of Object.entries(result.statusCounts || {})) {

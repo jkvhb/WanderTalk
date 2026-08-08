@@ -11,6 +11,26 @@ it('汇总首张精准图耗时时忽略没有精准结果的空时间', () => {
   expect(report.json.summary.firstExactMs).toBe(45)
 })
 
+it('限制性许可只能作为发现候选，且常见密钥字段会被脱敏', () => {
+  const restrictive = ['All Rights Reserved', 'Editorial use only', 'Copyright © Example', 'CC BY-NC-ND 4.0']
+  const report = buildBenchmarkReport([{
+    placeId: 'p', provider: 'source',
+    exact: restrictive.map((license, index) => ({
+      id: `r${index}`, imageUrl: `https://img.example/${index}.jpg`,
+      sourcePage: `https://example.com/${index}?X-API-Key=IMAGESECRET`,
+      license, licenseUrl: 'https://example.com/license',
+      client_secret: 'CLIENTSECRET', 'X-Subscription-Token': 'SUBSECRET',
+    })),
+  }])
+  const serialized = JSON.stringify(report.json)
+
+  expect(report.json.summary).toMatchObject({ directUseCandidates: 0, discoveryOnlyCandidates: 4 })
+  for (const secret of ['IMAGESECRET', 'CLIENTSECRET', 'SUBSECRET']) {
+    expect(report.markdown).not.toContain(secret)
+    expect(serialized).not.toContain(secret)
+  }
+})
+
 describe('搜图基准报告', () => {
   it('生成可复核的基础摘要并区分逻辑查询与真实接口调用', () => {
     const report = buildBenchmarkReport([{
@@ -23,6 +43,7 @@ describe('搜图基准报告', () => {
       errors: [],
       requestCount: 2,
       attemptCount: 4,
+      upstreamAttemptCount: 5,
       retryCount: 2,
       timeoutCount: 1,
       statusCounts: { 429: 1, '5xx': 1, timeout: 1 },
@@ -41,6 +62,7 @@ describe('搜图基准报告', () => {
       places: 1,
       logicalQueries: 2,
       attemptCount: 4,
+      upstreamAttemptCount: 5,
       retries: 2,
       timeouts: 1,
       statusCounts: { 429: 1, '5xx': 1, timeout: 1 },
@@ -52,7 +74,8 @@ describe('搜图基准报告', () => {
     })
     expect(report.json.summary).not.toHaveProperty('totalElapsedMs')
     expect(report.json.releaseGate).toEqual({ passed: true, reasons: [] })
-    expect(report.markdown).toContain('接口调用总数：4')
+    expect(report.markdown).toContain('来源搜索尝试数：4')
+    expect(report.markdown).toContain('HTTP 接口调用总数：5')
     expect(report.markdown).toContain('逻辑查询数：2')
     expect(report.markdown).toContain('金沙江大桥（竹巴笼）')
     expect(report.markdown).toContain('| 达到三张精准图片时间(ms) | 90 |')

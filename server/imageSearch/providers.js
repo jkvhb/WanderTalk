@@ -162,6 +162,7 @@ function mapillaryBboxes({ lng, lat }) {
 export function createPixabayProvider({ apiKey, fetchImpl = fetch } = {}) {
   return {
     name: 'pixabay',
+    upstreamAttemptCount: () => apiKey ? 1 : 0,
     async search({ query, signal }) {
       if (!apiKey) return { skipped: true, reason: 'missing-credentials' }
       const startedAt = Date.now()
@@ -188,6 +189,7 @@ export function createPixabayProvider({ apiKey, fetchImpl = fetch } = {}) {
           licenseUrl: 'https://pixabay.com/service/terms/',
         })),
         elapsedMs: elapsedSince(startedAt),
+        upstreamAttemptCount: 1,
       }
     },
   }
@@ -196,6 +198,7 @@ export function createPixabayProvider({ apiKey, fetchImpl = fetch } = {}) {
 export function createCommonsProvider({ fetchImpl = fetch } = {}) {
   return {
     name: 'commons',
+    upstreamAttemptCount: () => 1,
     async search({ query, signal }) {
       const startedAt = Date.now()
       const fetchWithSignal = (url, options = {}) => fetchImpl(url, withSignal(options, signal))
@@ -212,6 +215,7 @@ export function createCommonsProvider({ fetchImpl = fetch } = {}) {
           licenseUrl: hit.attribution?.licenseUrl,
         })),
         elapsedMs: elapsedSince(startedAt),
+        upstreamAttemptCount: 1,
       }
     },
   }
@@ -220,6 +224,7 @@ export function createCommonsProvider({ fetchImpl = fetch } = {}) {
 export function createOpenverseProvider({ fetchImpl = fetch } = {}) {
   return {
     name: 'openverse',
+    upstreamAttemptCount: () => 1,
     async search({ query, signal }) {
       const startedAt = Date.now()
       const url = new URL(OPENVERSE_URL)
@@ -244,6 +249,7 @@ export function createOpenverseProvider({ fetchImpl = fetch } = {}) {
           publisher: hit.source || hit.provider,
         })),
         elapsedMs: elapsedSince(startedAt),
+        upstreamAttemptCount: 1,
       }
     },
   }
@@ -252,6 +258,7 @@ export function createOpenverseProvider({ fetchImpl = fetch } = {}) {
 export function createBraveProvider({ apiKey, fetchImpl = fetch } = {}) {
   return {
     name: 'brave',
+    upstreamAttemptCount: () => apiKey ? 1 : 0,
     async search({ query, signal }) {
       if (!apiKey) return { skipped: true, reason: 'missing-credentials' }
       const startedAt = Date.now()
@@ -278,6 +285,7 @@ export function createBraveProvider({ apiKey, fetchImpl = fetch } = {}) {
           publisher: hit.source || hit.meta_url?.hostname || hit.meta_url?.netloc,
         })),
         elapsedMs: elapsedSince(startedAt),
+        upstreamAttemptCount: 1,
       }
     },
   }
@@ -286,6 +294,10 @@ export function createBraveProvider({ apiKey, fetchImpl = fetch } = {}) {
 export function createMapillaryProvider({ accessToken, fetchImpl = fetch } = {}) {
   return {
     name: 'mapillary',
+    upstreamAttemptCount({ place } = {}) {
+      if (!accessToken || !validCoordinates(place?.coordinates)) return 0
+      return mapillaryBboxes(place.coordinates).length
+    },
     cacheKey({ place } = {}) {
       if (!validCoordinates(place?.coordinates)) return 'missing-coordinates'
       return `bbox:${mapillaryBboxes(place.coordinates).map((bbox) => bbox.join(',')).join('|')}`
@@ -325,6 +337,7 @@ export function createMapillaryProvider({ accessToken, fetchImpl = fetch } = {})
           publisher: 'Mapillary',
         }))),
         elapsedMs: elapsedSince(startedAt),
+        upstreamAttemptCount: responses.length,
       }
     },
   }

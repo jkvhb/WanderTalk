@@ -1,5 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createBenchmarkRunner } from './benchmarkRunner.js'
+
+it('分别统计来源搜索尝试与真实上游 HTTP 调用', async () => {
+  const provider = {
+    name: 'split-source',
+    upstreamAttemptCount: () => 2,
+    search: async () => ({ candidates: [] }),
+  }
+  const runner = createBenchmarkRunner({ providers: [provider] })
+  const [row] = await runner.run([{ id: 'edge' }], () => ['q'])
+
+  expect(row).toMatchObject({ attemptCount: 1, upstreamAttemptCount: 2 })
+})
 import { createMapillaryProvider } from './providers.js'
 
 describe('搜图基准执行器', () => {
@@ -155,6 +167,7 @@ describe('搜图基准执行器', () => {
       error: 'Unknown provider: missing',
       status: 500,
       attemptCount: 0,
+      upstreamAttemptCount: 0,
       retryCount: 0,
       timeoutCount: 0,
       statusCounts: {},

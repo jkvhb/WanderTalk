@@ -1,5 +1,5 @@
-const SECRET_KEY = /^(?:api[_-]?key|access[_-]?token|token|authorization)$/i
-const SECRET_QUERY_KEY = /^(?:api[_-]?key|access[_-]?token|token|key|authorization)$/i
+const SECRET_KEY = /^(?:(?:x[_-]?)?api[_-]?key|(?:x[_-]?)?subscription[_-]?token|access[_-]?token|client[_-]?secret|token|authorization)$/i
+const SECRET_QUERY_KEY = /^(?:(?:x[_-]?)?api[_-]?key|(?:x[_-]?)?subscription[_-]?token|access[_-]?token|client[_-]?secret|token|key|authorization)$/i
 
 const list = (value) => Array.isArray(value) ? value : []
 const count = (value) => {
@@ -11,7 +11,7 @@ function redactSecrets(value) {
   return String(value ?? '')
     .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [REDACTED]')
     .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/g, '[REDACTED]')
-    .replace(/\b(api[_-]?key|access[_-]?token|token|authorization)\s*[=:]\s*([^\s&,;]+)/gi, '$1=[REDACTED]')
+    .replace(/\b((?:x[_-]?)?api[_-]?key|(?:x[_-]?)?subscription[_-]?token|access[_-]?token|client[_-]?secret|token|authorization)\s*[=:]\s*([^\s&,;]+)/gi, '$1=[REDACTED]')
 }
 
 function safeUrl(value) {
@@ -187,9 +187,16 @@ function isDirectUseCandidate(item) {
     isCompleteSafeUrl(item?.imageUrl)
     && isCompleteSafeUrl(item?.sourcePage)
     && isCompleteSafeUrl(item?.licenseUrl)
-    && license
-    && !/^(?:unknown|未知|未提供)$/i.test(license),
+    && isApprovedDirectUseLicense(license),
   )
+}
+
+function isApprovedDirectUseLicense(license) {
+  const normalized = license.normalize('NFKC').trim().toLowerCase()
+  if (normalized === 'pixabay content license') return true
+  if (/^(?:cc0|creative commons zero)(?:\s+1\.0)?$/i.test(normalized)) return true
+  if (/^(?:public domain|公有领域|公共领域)$/i.test(normalized)) return true
+  return /^(?:(?:cc|creative commons)[\s_-]*)?by(?:[\s_-]+\d(?:\.\d)?)?$/i.test(normalized)
 }
 
 function isCompleteSafeUrl(value) {
@@ -242,6 +249,7 @@ function buildSummary(rows, cachedRunElapsedMs, usage) {
     rejectedCandidates: rows.reduce((sum, row) => sum + row.rejected.length, 0),
     logicalQueries: rows.reduce((sum, row) => sum + count(row.requestCount), 0),
     attemptCount: rows.reduce((sum, row) => sum + count(row.attemptCount), 0),
+    upstreamAttemptCount: rows.reduce((sum, row) => sum + count(row.upstreamAttemptCount), 0),
     retries: rows.reduce((sum, row) => sum + count(row.retryCount), 0),
     timeouts: rows.reduce((sum, row) => sum + count(row.timeoutCount), 0),
     statusCounts: aggregateStatusCounts(rows),
@@ -411,12 +419,14 @@ export function buildBenchmarkReport(inputRows, options = {}) {
     `| 整批真实墙钟耗时(ms) | ${summary.batchElapsedMs ?? '无'} |`,
     `| 缓存复跑耗时(ms) | ${summary.cachedRunElapsedMs ?? '无'} |`,
     `| 逻辑查询数 | ${summary.logicalQueries} |`,
-    `| 接口调用总数 | ${summary.attemptCount} |`,
+    `| 来源搜索尝试数 | ${summary.attemptCount} |`,
+    `| HTTP 接口调用总数 | ${summary.upstreamAttemptCount} |`,
     `| 重试/超时/最终错误/缓存命中 | ${summary.retries}/${summary.timeouts}/${summary.finalErrors}/${summary.cacheHits} |`,
     `| 状态码统计 | ${markdownText(statusText)} |`,
     '',
     `- 逻辑查询数：${summary.logicalQueries}`,
-    `- 接口调用总数：${summary.attemptCount}`,
+    `- 来源搜索尝试数：${summary.attemptCount}`,
+    `- HTTP 接口调用总数：${summary.upstreamAttemptCount}`,
     `- 可直接使用候选：${summary.directUseCandidates}`,
     `- 仅发现候选：${summary.discoveryOnlyCandidates}`,
     '- 许可提示：即使列为可直接使用候选，仍须逐图遵守许可条款、署名要求及第三方权利限制。',
