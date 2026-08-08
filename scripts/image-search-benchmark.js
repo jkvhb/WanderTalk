@@ -155,7 +155,7 @@ export async function runImageSearchBenchmark({
     cachedRunElapsedMs: batchElapsed(warmRows),
     sourceStatus: sources,
   })
-  if (report?.json?.releaseGate?.passed === false) {
+  if (report?.json?.releaseGate?.passed !== true) {
     throw new Error('图片基准发布闸门未通过')
   }
 
@@ -194,9 +194,7 @@ export async function main({
 } = {}) {
   loadEnv()
   const dryRun = argv.includes('--dry-run')
-  const outputArg = argv.find((arg) => arg.startsWith('--output-dir='))
-  const outputDir = outputArg ? path.resolve(outputArg.slice('--output-dir='.length)) : undefined
-  const result = await runBenchmark({ dryRun, ...(outputDir ? { outputDir } : {}) })
+  const result = await runBenchmark({ dryRun })
   logger.log(`启用来源：${result.sources.enabled.join('、') || '无'}`)
   logger.log(`跳过来源：${result.sources.skipped.join('、') || '无'}`)
   logger.log(`失败来源：${result.sources.failed.join('、') || '无'}`)

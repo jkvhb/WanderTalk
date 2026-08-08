@@ -212,7 +212,7 @@ describe('图片来源基准 CLI', () => {
     const loadEnv = vi.fn()
 
     await main({
-      argv: [],
+      argv: ['--output-dir=unsafe'],
       logger: { log: (message) => messages.push(message) },
       loadEnv,
       runBenchmark,
@@ -220,6 +220,7 @@ describe('图片来源基准 CLI', () => {
 
     expect(loadEnv).toHaveBeenCalledOnce()
     expect(runBenchmark).toHaveBeenCalledOnce()
+    expect(runBenchmark).toHaveBeenCalledWith({ dryRun: false })
     expect(messages.join('\n')).toContain('HTTP 上游请求：48')
     expect(messages.join('\n')).not.toMatch(/key|token|secret|sk-/i)
   })
@@ -278,5 +279,21 @@ describe('图片来源基准 CLI', () => {
     expect(fs.files.get(md)).toBe('# old\n')
     expect(fs.files.get(json)).toBe('{"old":true}\n')
     expect([...fs.files.keys()].some((file) => file.includes('.tmp-') || file.includes('.bak-'))).toBe(false)
+  })
+
+  it('报告未明确通过发布闸门时默认拒绝写盘', async () => {
+    const fs = memoryFs()
+    const runner = { run: vi.fn().mockResolvedValue(makeRows(5)) }
+
+    await expect(runImageSearchBenchmark({
+      places,
+      providerFactories: fakeFactories(),
+      runnerFactory: vi.fn(() => runner),
+      reportBuilder: vi.fn(() => ({ markdown: '# malformed\n', json: { summary: {} } })),
+      fs, outputDir: 'reports',
+    })).rejects.toThrow('发布闸门未通过')
+
+    expect(fs.writeFile).not.toHaveBeenCalled()
+    expect(fs.files.size).toBe(0)
   })
 })
