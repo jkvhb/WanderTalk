@@ -6,6 +6,7 @@ const settings = useSettingsStore()
 const amapInput = ref(settings.amapKey)
 const amapSecurityInput = ref(settings.amapSecurityCode)
 const llmInput = ref(settings.llmKey)
+const kimiInput = ref(settings.kimiKey)
 const llmProviderInput = ref(settings.llmProvider)
 const tiandituInput = ref(settings.tiandituKey)
 const saved = ref(false)
@@ -14,8 +15,16 @@ function save() {
   settings.setAmapKey(amapInput.value)
   settings.setAmapSecurityCode(amapSecurityInput.value)
   settings.setLlmKey(llmInput.value)
+  settings.setKimiKey(kimiInput.value)
   settings.setLlmProvider(llmProviderInput.value)
   settings.setTiandituKey(tiandituInput.value)
+  saved.value = true
+  setTimeout(() => (saved.value = false), 2000)
+}
+
+function clearKimiKey() {
+  kimiInput.value = ''
+  settings.clearKimiKey()
   saved.value = true
   setTimeout(() => (saved.value = false), 2000)
 }
@@ -61,9 +70,28 @@ function save() {
           <option value="kimi">Kimi K2.6（默认）</option>
           <option value="deepseek">DeepSeek（备用）</option>
         </select>
-        <p v-if="llmProviderInput === 'kimi'" class="text-xs text-gray-500">
-          Kimi Key 由本地服务端安全读取，不保存在浏览器中。
-        </p>
+        <div v-if="llmProviderInput === 'kimi'" class="space-y-2">
+          <label class="block text-sm font-medium">Kimi API Key</label>
+          <div class="flex gap-2">
+            <input
+              v-model="kimiInput"
+              type="password"
+              autocomplete="off"
+              placeholder="在 platform.moonshot.cn 申请的 API Key"
+              class="min-w-0 flex-1 px-3 py-2 rounded-lg border border-gray-200 focus:border-accent focus:outline-none text-sm"
+            />
+            <button
+              type="button"
+              class="shrink-0 px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition"
+              @click="clearKimiKey"
+            >
+              清除
+            </button>
+          </div>
+          <p class="text-xs text-gray-500">
+            只保存在当前浏览器；未填写时会尝试使用本地服务端的备用 Key。
+          </p>
+        </div>
       </div>
 
       <div>
@@ -101,7 +129,7 @@ function save() {
     </section>
 
     <p class="text-xs text-gray-400">
-      🔒 Kimi Key 仅保存在本地服务端环境文件；其余 Key 保存在当前浏览器本地。
+      🔒 浏览器 Key 不会写入项目或 Git，但恶意浏览器扩展、同源脚本仍可能读取本地数据。请勿使用已经公开过的 Key。
     </p>
   </div>
 </template>
