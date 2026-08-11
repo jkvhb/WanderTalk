@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useTripStore } from '../stores/trip'
 import { synthesize } from '../composables/useTts'
 import { generateNarrationDraft } from '../composables/useNarration'
@@ -8,6 +8,7 @@ import { useStudioStore } from '../stores/studio'
 import { downscaleImage, newImageId } from '../utils/image'
 import { putImage, getImage, deleteImage } from '../utils/db'
 import { missingLlmKeyMessage, resolveLlmRequest } from '../utils/llmRequest'
+import { contentNodeEntries } from '../utils/contentNode'
 
 const props = defineProps({
   day: { type: Object, required: true },
@@ -17,6 +18,7 @@ const props = defineProps({
 const trip = useTripStore()
 const settings = useSettingsStore()
 const studio = useStudioStore()
+const editableWaypoints = computed(() => contentNodeEntries(props.day.waypoints))
 const expanded = ref(true)
 const busy = ref('') // 当前操作中的「dayNumber-index」标记
 const error = ref('')
@@ -89,10 +91,11 @@ async function ensureThumb(id) {
   const e = await getImage(id)
   if (e?.blob) thumbs[id] = URL.createObjectURL(e.blob)
 }
-function loadThumbs() {
-  for (const w of props.day.waypoints) for (const id of w.images || []) ensureThumb(id)
-}
-loadThumbs()
+watch(
+  () => editableWaypoints.value.flatMap(({ node }) => node.images || []),
+  (ids) => ids.forEach(ensureThumb),
+  { immediate: true },
+)
 
 async function onUpload(i, ev) {
   const files = Array.from(ev.target.files || [])
@@ -139,7 +142,7 @@ async function onRemoveImage(i, id) {
 
     <div v-if="expanded" class="px-2.5 pb-2.5 space-y-2 border-t border-gray-50 pt-2">
       <p v-if="error" class="text-xs text-red-500">{{ error }}</p>
-      <div v-for="(w, i) in day.waypoints" :key="i" class="space-y-1">
+      <div v-for="{ node: w, index: i } in editableWaypoints" :key="i" class="space-y-1">
         <div class="flex items-center gap-2">
           <span class="text-xs font-medium flex-1 truncate">{{ w.name }}</span>
           <button
