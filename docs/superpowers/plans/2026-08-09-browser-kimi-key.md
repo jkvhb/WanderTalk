@@ -36,7 +36,7 @@ it('Kimi Key 可独立保存和清除', () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `npm.cmd test -- src/stores/settings.test.js`  
+Run: `npm.cmd test -- src/stores/settings.test.js`
 Expected: FAIL，提示 `setKimiKey` 不存在。
 
 - [ ] **Step 3: 最小实现**
@@ -57,7 +57,7 @@ function clearKimiKey() {
 
 - [ ] **Step 4: 运行测试并提交**
 
-Run: `npm.cmd test -- src/stores/settings.test.js`  
+Run: `npm.cmd test -- src/stores/settings.test.js`
 Expected: PASS。
 
 Commit: `feat(settings): persist browser-local Kimi key`
@@ -83,7 +83,7 @@ expect(missingLlmKeyMessage({ llmProvider: 'kimi', kimiKey: '' }))
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `npm.cmd test -- src/utils/llmRequest.test.js`  
+Run: `npm.cmd test -- src/utils/llmRequest.test.js`
 Expected: FAIL，模块不存在。
 
 - [ ] **Step 3: 实现并接入页面**
@@ -92,7 +92,7 @@ Expected: FAIL，模块不存在。
 
 - [ ] **Step 4: 运行相关测试并提交**
 
-Run: `npm.cmd test -- src/utils/llmRequest.test.js src/composables/useNarration.test.js src/stores/studio.test.js`  
+Run: `npm.cmd test -- src/utils/llmRequest.test.js src/composables/useNarration.test.js src/stores/studio.test.js`
 Expected: PASS。
 
 Commit: `feat(ai): send provider-specific browser key`
@@ -116,7 +116,7 @@ expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe('Bearer browser-ke
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `npm.cmd test -- server/llm.test.js server/app.test.js`  
+Run: `npm.cmd test -- server/llm.test.js server/app.test.js`
 Expected: FAIL，实际仍使用服务端 Key。
 
 - [ ] **Step 3: 最小实现**
@@ -129,7 +129,7 @@ const resolvedKey = provider === 'kimi' ? (apiKey || moonshotApiKey) : apiKey
 
 - [ ] **Step 4: 运行测试并提交**
 
-Run: `npm.cmd test -- server/llm.test.js server/app.test.js`  
+Run: `npm.cmd test -- server/llm.test.js server/app.test.js`
 Expected: PASS。
 
 Commit: `feat(server): allow browser Kimi key with env fallback`
@@ -145,10 +145,10 @@ Kimi 被选中时显示密码输入框、清除按钮和安全说明；保存按
 
 - [ ] **Step 2: 全量验证**
 
-Run: `npm.cmd test`  
+Run: `npm.cmd test`
 Expected: 全部 PASS。
 
-Run: `npm.cmd run build`  
+Run: `npm.cmd run build`
 Expected: 构建成功，仅允许现有的大包体积提示。
 
 - [ ] **Step 3: 检查敏感信息与提交**
