@@ -7,6 +7,7 @@ import { useStudioStore } from '../stores/studio'
 import { VOICES } from '../composables/useTts'
 import NarrationDayCard from '../components/NarrationDayCard.vue'
 import { isContentNode } from '../utils/contentNode'
+import { missingLlmKeyMessage, resolveLlmRequest } from '../utils/llmRequest'
 // 懒加载：预览时才拉取 MapLibre（~400KB），首屏不背这个包
 const FlightPlayer = defineAsyncComponent(() => import('../components/FlightPlayer.vue'))
 
@@ -23,15 +24,13 @@ function plainNarration(text) {
 }
 
 function llmRequest() {
-  return {
-    provider: settings.llmProvider,
-    apiKey: settings.llmProvider === 'deepseek' ? settings.llmKey : '',
-  }
+  return resolveLlmRequest(settings)
 }
 
 function ensureLlmReady() {
-  if (!settings.needsDeepSeekKey) return true
-  uiError.value = '请先在「设置」填写 DeepSeek API Key'
+  const message = missingLlmKeyMessage(settings)
+  if (!message) return true
+  uiError.value = message
   return false
 }
 

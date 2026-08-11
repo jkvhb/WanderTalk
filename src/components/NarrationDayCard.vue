@@ -7,6 +7,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useStudioStore } from '../stores/studio'
 import { downscaleImage, newImageId } from '../utils/image'
 import { putImage, getImage, deleteImage } from '../utils/db'
+import { missingLlmKeyMessage, resolveLlmRequest } from '../utils/llmRequest'
 
 const props = defineProps({
   day: { type: Object, required: true },
@@ -48,8 +49,9 @@ async function preview(i) {
 
 async function aiDraft(i) {
   const wp = props.day.waypoints[i]
-  if (!settings.llmKey) {
-    error.value = '请先在「设置」填写 DeepSeek API Key'
+  const missingKey = missingLlmKeyMessage(settings)
+  if (missingKey) {
+    error.value = missingKey
     return
   }
   error.value = ''
@@ -70,7 +72,7 @@ async function aiDraft(i) {
           nextName: next,
         },
       ],
-      { apiKey: settings.llmKey },
+      resolveLlmRequest(settings),
     )
     if (r?.narration) trip.setNarration(props.day.dayNumber, i, r.narration, { keepPrev: true })
   } catch (e) {
