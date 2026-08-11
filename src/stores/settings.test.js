@@ -49,4 +49,20 @@ describe('settings store', () => {
     expect(s.llmProvider).toBe('deepseek')
     expect(localStorage.getItem('318:llmProvider')).toBe('deepseek')
   })
+
+  it('Kimi Key 可独立保存和清除', () => {
+    const s = useSettingsStore()
+    s.setKimiKey('  kimi-test-key  ')
+    s.setLlmKey('deepseek-test-key')
+
+    expect(s.kimiKey).toBe('kimi-test-key')
+    expect(s.hasKimiKey).toBe(true)
+    expect(localStorage.getItem('318:kimiKey')).toBe('kimi-test-key')
+
+    s.clearKimiKey()
+    expect(s.kimiKey).toBe('')
+    expect(s.hasKimiKey).toBe(false)
+    expect(localStorage.getItem('318:kimiKey')).toBeNull()
+    expect(s.llmKey).toBe('deepseek-test-key')
+  })
 })
