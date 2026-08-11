@@ -28,13 +28,13 @@ export function makeLlmCaller({ moonshotApiKey = '', fetchImpl = fetch } = {}) {
     const config = PROVIDERS[provider]
     if (!config) throw httpError(`不支持的 AI 供应商：${provider}`, 400)
 
-    const resolvedKey = provider === 'kimi' ? moonshotApiKey : apiKey
+    const resolvedKey = provider === 'kimi' ? (apiKey || moonshotApiKey) : apiKey
     if (!resolvedKey) {
       const message =
         provider === 'kimi'
-          ? 'Kimi 尚未在本地服务端配置，请设置 MOONSHOT_API_KEY'
+          ? '请在「设置」中填写 Kimi API Key'
           : '请先在「设置」填写 DeepSeek API Key'
-      throw httpError(message, provider === 'kimi' ? 503 : 400)
+      throw httpError(message, 400)
     }
 
     const body = {

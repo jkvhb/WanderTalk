@@ -54,12 +54,28 @@ describe('makeLlmCaller', () => {
     expect(body).not.toHaveProperty('thinking')
   })
 
+  it('Kimi 优先使用浏览器传入的 Key，服务端 Key 只作备用', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
+    }))
+    const callLLM = makeLlmCaller({ moonshotApiKey: 'server-kimi-key', fetchImpl })
+
+    await callLLM({
+      provider: 'kimi',
+      apiKey: 'browser-kimi-key',
+      messages: [{ role: 'user', content: '你好' }],
+    })
+
+    expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe('Bearer browser-kimi-key')
+  })
+
   it('Kimi 服务端 Key 未配置时返回可读错误，且不会发出网络请求', async () => {
     const fetchImpl = vi.fn()
     const callLLM = makeLlmCaller({ moonshotApiKey: '', fetchImpl })
     await expect(callLLM({ messages: [] })).rejects.toMatchObject({
-      message: expect.stringMatching(/MOONSHOT_API_KEY/),
-      status: 503,
+      message: expect.stringMatching(/设置.*Kimi API Key/),
+      status: 400,
     })
     expect(fetchImpl).not.toHaveBeenCalled()
   })
