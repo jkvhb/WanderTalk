@@ -1,5 +1,7 @@
 # 多源精准搜图基准报告
 
+> 2026-08-12 决策记录：Brave Image Search 的正式接入因当前订阅需要 Visa 信用卡而暂缓。待具备可用支付方式时重新提醒并评估；当前继续使用已配置来源，缺少可靠图片的节点允许降级为地图＋文字，不允许用错误地点图片凑数。
+
 - 执行时间：2026-08-08T09:58:01.398Z
 - 启用来源：commons、openverse、pixabay
 - 跳过来源：brave、commons、mapillary、openverse
